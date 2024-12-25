@@ -8,5 +8,6 @@ CREATE TABLE users (
     zipcode TEXT,
     latitude REAL,
     longitude REAL,
-    preferred_time TEXT NOT NULL
+    preferred_time TEXT NOT NULL,
+    message_template TEXT
 );

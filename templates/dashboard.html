@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Jacket App - Dashboard</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 30px auto;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+
+        #message {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .dashboard-item {
+            background-color: #f0f0f0;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }
+
+        .dashboard-item h3 {
+            margin-top: 0;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="btn-group mb-3" role="group">
+            <form action="/test_message" method="GET" style="display: inline-block; margin-right: 10px;">
+                <button type="submit" class="btn btn-secondary">Test Message</button>
+            </form>
+            <a href="/profile" class="btn btn-primary" style="margin-right: 10px;">Edit Profile</a>
+            <form action="/logout" method="GET" style="display: inline-block;">
+                <button type="submit" class="btn btn-secondary">Logout</button>
+            </form>
+        </div>
+        
+        <h1>Jacket App Dashboard</h1>
+
+        <div id="message">
+            {% if message %}
+                <p>{{ message }}</p>
+            {% endif %}
+        </div>
+
+        <div class="row">
+            <div class="col-md-6">
+                <div class="dashboard-item">
+                    <h3>Current Weather</h3>
+                    <p id="current-weather">{{ current_weather }}</p>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="dashboard-item">
+                    <h3>Jacket Recommendation</h3>
+                    <p id="jacket-recommendation">{{ jacket_recommendation }}</p>
+                </div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-6">
+                <div class="dashboard-item">
+                    <h3>Preferred Time</h3>
+                    <p id="preferred-time">{{ form_data.preferred_time }}</p>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="dashboard-item">
+                    <h3>Next Scheduled Message</h3>
+                    <p id="next-message">{{ next_message }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        function updateWeather() {
+            fetch('/weather')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    document.getElementById('current-weather').textContent = `It's ${data.temperature} degrees and ${data.condition}.`;
+                    document.getElementById('jacket-recommendation').textContent = data.jacket_recommendation;
+                })
+                .catch(error => {
+                    console.error('Error fetching weather data:', error);
+                    document.getElementById('current-weather').textContent = 'Weather data not available.';
+                    document.getElementById('jacket-recommendation').textContent = 'Recommendation not available.';
+                });
+        }
+
+        // Update weather on page load and every 30 minutes
+        updateWeather();
+        setInterval(updateWeather, 30 * 60 * 1000); // 30 minutes interval
+    </script>
+</body>
+</html>
