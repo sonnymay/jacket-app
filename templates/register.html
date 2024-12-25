@@ -3,7 +3,10 @@
 <head>
     <title>Register</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/plugins/timeInput/timeInput.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/plugins/timeInput/timeInput.js"></script>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <style>
         body {
@@ -105,8 +108,15 @@
             </div>
 
             <div class="form-group">
-                <label for="preferred_time">Preferred Time (12-hour format):</label>
-                <input type="text" id="preferred_time" name="preferred_time" required>
+                <label for="daily_reminder_time">Daily Reminder Time:</label>
+                <input 
+                    id="daily_reminder_time" 
+                    name="preferred_time" 
+                    type="text" 
+                    class="form-control" 
+                    placeholder="Select a time..."
+                    required
+                />
             </div>
 
             <div class="form-group">
@@ -143,11 +153,20 @@
             console.log("Error getting geolocation:", error);
         }
 
-        flatpickr("#preferred_time", {
-            enableTime: true,
-            noCalendar: true,
-            dateFormat: "h:i K", // 12-hour format with AM/PM
-            time_24hr: false // Set to false for 12-hour format
+        document.addEventListener('DOMContentLoaded', function() {
+            flatpickr("#daily_reminder_time", {
+                enableTime: true,
+                noCalendar: true,
+                dateFormat: "h:i K",
+                time_24hr: false,
+                allowInput: false,
+                disableMobile: true,
+                plugins: [ new timeInput({}) ],
+                defaultDate: "08:00",
+                onChange: function(selectedDates, dateStr) {
+                    console.log("Time changed to:", dateStr);
+                }
+            });
         });
     </script>
 </body>

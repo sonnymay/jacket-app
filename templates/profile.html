@@ -3,8 +3,11 @@
 <head>
     <title>Jacket App - Edit Profile</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/plugins/timeInput/timeInput.js"></script>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/timepicker.css') }}">
 
     <style>
         body {
@@ -91,8 +94,43 @@
             </div>
 
             <div class="form-group">
-                <label for="preferred_time">Preferred Time:</label>
-                <input type="text" id="preferred_time" name="preferred_time" value="{{ form_data.preferred_time }}">
+                <label for="daily_reminder_time">Daily Reminder Time:</label>
+                <input type="hidden" id="daily_reminder_time" name="preferred_time" value="{{ form_data.preferred_time }}">
+                <div class="time-picker-input" id="timePickerTrigger">
+                    <span class="clock-icon">🕒</span>
+                    <span id="selectedTime">{{ form_data.preferred_time or '--:-- --' }}</span>
+                </div>
+            </div>
+
+            <!-- Time Picker Modal -->
+            <div class="time-picker-modal" id="timePickerModal">
+                <div class="time-picker-content">
+                    <h3>Pick a Time</h3>
+                    <div class="time-picker-fields">
+                        <!-- Hour -->
+                        <div class="time-picker-field">
+                            <label for="pickerHour">Hour</label>
+                            <input type="number" id="pickerHour" min="1" max="12" value="7">
+                        </div>
+                        <!-- Minute -->
+                        <div class="time-picker-field">
+                            <label for="pickerMinute">Minute</label>
+                            <input type="number" id="pickerMinute" min="0" max="59" value="0">
+                        </div>
+                        <!-- AM/PM -->
+                        <div class="time-picker-field">
+                            <label for="pickerAmPm">AM/PM</label>
+                            <select id="pickerAmPm">
+                                <option value="AM">AM</option>
+                                <option value="PM">PM</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="time-picker-buttons">
+                        <button type="button" id="pickerCancel">Cancel</button>
+                        <button type="button" id="pickerOk">OK</button>
+                    </div>
+                </div>
             </div>
 
             <div class="form-group">
@@ -132,11 +170,20 @@
             console.log("Error getting geolocation:", error);
         }
 
-        flatpickr("#preferred_time", {
-            enableTime: true,
-            noCalendar: true,
-            dateFormat: "H:i",
-            time_24hr: true
+        document.addEventListener('DOMContentLoaded', function() {
+            flatpickr("#daily_reminder_time", {
+                enableTime: true,
+                noCalendar: true,
+                dateFormat: "h:i K",
+                time_24hr: false,
+                allowInput: false,
+                disableMobile: true,
+                plugins: [ new timeInput({}) ],
+                defaultDate: "08:00",
+                onChange: function(selectedDates, dateStr) {
+                    console.log("Time changed to:", dateStr);
+                }
+            });
         });
 
         document.getElementById('profileForm').addEventListener('submit', function(event) {
@@ -175,5 +222,6 @@
             });
         });
     </script>
+    <script src="{{ url_for('static', filename='js/timepicker.js') }}"></script>
 </body>
 </html>

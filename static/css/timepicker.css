@@ -1,0 +1,42 @@
+.time-picker-input {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 8px;
+    cursor: pointer;
+    user-select: none;
+    width: 180px;
+    justify-content: space-between;
+}
+
+.time-picker-input:hover {
+    background-color: #f9f9f9;
+}
+
+.clock-icon {
+    margin-right: 8px;
+}
+
+.time-picker-modal {
+    display: none;
+    position: fixed;
+    z-index: 9999;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.time-picker-content {
+    background: #fff;
+    margin: 100px auto;
+    padding: 20px;
+    width: 300px;
+    border-radius: 5px;
+    position: relative;
+}
+
+/* ...rest of the CSS from the example... */

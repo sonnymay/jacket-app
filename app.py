@@ -117,35 +117,56 @@ def get_forecast_in_celsius(zipcode=None, latitude=None, longitude=None):
 def generate_jacket_recommendation(temperature_f, wind_speed, condition):
     try:
         openai.api_key = OPENAI_API_KEY
+        
         if temperature_f < 30:
-            recommendation_prompt = f"What type of jacket, gloves, and hat should someone wear in very cold weather (below 30°F) with {condition} and a wind speed of {wind_speed} mph?"
+            recommendation_prompt = (
+                f"Give me a fun, casual style recommendation for very cold weather (below 30°F), "
+                f"{condition}, and wind speed of {wind_speed} mph. Include jacket, gloves, hat, "
+                "and a humorous touch."
+            )
         elif temperature_f < 50:
-            recommendation_prompt = f"What type of jacket should someone wear in cold weather (30-49°F) with {condition} and a wind speed of {wind_speed} mph? Should they wear gloves or a hat?"
+            recommendation_prompt = (
+                f"Suggest a playful outfit for cold weather (30-49°F), {condition}, "
+                f"{wind_speed} mph wind. Mention gloves/hat if needed, and be a bit witty."
+            )
         elif temperature_f < 60:
-            recommendation_prompt = f"What type of jacket should someone wear in cool weather (50-59°F) with {condition} and a wind speed of {wind_speed} mph?"
+            recommendation_prompt = (
+                f"Offer a friendly, slightly humorous recommendation for cool weather (50-59°F), "
+                f"{condition}, and {wind_speed} mph wind. Jacket or no?"
+            )
         else:
-            recommendation_prompt = f"What should someone wear in mild weather (above 60°F) with {condition} and a wind speed of {wind_speed} mph? Should they wear a jacket?"
+            recommendation_prompt = (
+                f"Give a lighthearted clothing recommendation for mild weather (above 60°F), "
+                f"{condition}, {wind_speed} mph wind. Should I pack a jacket?"
+            )
 
         response = openai.ChatCompletion.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a helpful weather assistant providing specific clothing recommendations."},
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a helpful but slightly playful weather assistant. "
+                        "Respond in a friendly, human tone with a bit of humor."
+                    )
+                },
                 {"role": "user", "content": recommendation_prompt}
             ],
-            max_tokens=100,
-            temperature=0.7
+            max_tokens=150,
+            temperature=0.9
         )
+
         recommendation = response.choices[0].message.content.strip()
         print(f"Generated recommendation: {recommendation}")
         return recommendation
     except Exception as e:
         print(f"Error generating jacket recommendation with OpenAI: {e}")
         if temperature_f < 50:
-            return "You should wear a warm jacket today."
+            return "Bundle up in something toasty—maybe a thick jacket, gloves, and a warm hat!"
         elif temperature_f < 60:
-            return "A light jacket would be appropriate."
+            return "A light jacket should do the trick, but don't forget to check the breeze."
         else:
-            return "No jacket needed today."
+            return "No heavy jacket needed—just keep one handy if you're feeling chilly."
 
 def should_wear_jacket(weather_data):
     temperature = weather_data["main"]["temp"]
