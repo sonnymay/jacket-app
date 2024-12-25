@@ -9,5 +9,5 @@ CREATE TABLE users (
     latitude REAL,
     longitude REAL,
     preferred_time TEXT NOT NULL,
-    message_template TEXT
+    temperature_sensitivity TEXT DEFAULT 'Normal'
 );

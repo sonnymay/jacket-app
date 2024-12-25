@@ -4,37 +4,116 @@
     <title>Jacket App - Edit Profile</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 30px auto;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+
+        #message {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .form-group input[type="text"],
+        .form-group input[type="time"] {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        .form-group input[type="submit"] {
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            text-transform: uppercase;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .form-group input[type="submit"]:hover {
+            background-color: #0056b3;
+        }
+
+        .back-to-dashboard {
+            text-align: center;
+            margin-top: 20px;
+        }
+    </style>
 </head>
 <body>
-    <h1>Edit Profile</h1>
+    <div class="container">
+        <h1>Edit Profile</h1>
 
-    <div id="message">
-        {% if message %}
-            <p>{{ message }}</p>
-        {% endif %}
+        <div id="message">
+            {% if message %}
+                <p>{{ message }}</p>
+            {% endif %}
+        </div>
+
+        <form id="profileForm" method="POST" action="/profile">
+            <div class="form-group">
+                <label for="zipcode">Zip Code:</label>
+                <input type="text" id="zipcode" name="zipcode" value="{{ form_data.zipcode }}">
+            </div>
+
+            <div class="form-group">
+                <label for="phone">Phone Number:</label>
+                <input type="text" id="phone" name="phone" value="{{ form_data.phone }}">
+            </div>
+
+            <div class="form-group">
+                <label for="preferred_time">Preferred Time:</label>
+                <input type="text" id="preferred_time" name="preferred_time" value="{{ form_data.preferred_time }}">
+            </div>
+
+            <div class="form-group">
+                <label for="temperature_sensitivity">Temperature Sensitivity:</label>
+                <select id="temperature_sensitivity" name="temperature_sensitivity" class="form-control">
+                    <option value="Cold" {% if form_data.temperature_sensitivity == 'Cold' %}selected{% endif %}>Cold</option>
+                    <option value="Normal" {% if form_data.temperature_sensitivity == 'Normal' %}selected{% endif %}>Normal</option>
+                    <option value="Warm" {% if form_data.temperature_sensitivity == 'Warm' %}selected{% endif %}>Warm</option>
+                </select>
+            </div>
+
+            <input type="hidden" id="latitude" name="latitude" value="{{ form_data.latitude }}">
+            <input type="hidden" id="longitude" name="longitude" value="{{ form_data.longitude }}">
+
+            <input type="submit" value="Update Profile">
+        </form>
+
+        <div class="back-to-dashboard">
+            <a href="/dashboard" class="btn btn-secondary">Back to Dashboard</a>
+        </div>
     </div>
-
-    <form id="profileForm" method="POST" action="/profile">
-        <label for="zipcode">Zip Code:</label>
-        <input type="text" id="zipcode" name="zipcode" value="{{ form_data.zipcode }}"><br><br>
-
-        <label for="phone">Phone Number:</label>
-        <input type="text" id="phone" name="phone" value="{{ form_data.phone }}"><br><br>
-
-        <label for="preferred_time">Preferred Time:</label>
-        <input type="text" id="preferred_time" name="preferred_time" value="{{ form_data.preferred_time }}"><br><br>
-
-        <label for="message_template">Message Template:</label>
-        <textarea id="message_template" name="message_template" rows="4" cols="50">{{ form_data.message_template }}</textarea><br><br>
-
-        <input type="hidden" id="latitude" name="latitude" value="{{ form_data.latitude }}">
-        <input type="hidden" id="longitude" name="longitude" value="{{ form_data.longitude }}">
-
-        <input type="submit" value="Update Profile">
-    </form>
-
-    <a href="/dashboard">Back to Dashboard</a>
-
     <script>
         window.onload = function() {
             if (navigator.geolocation) {

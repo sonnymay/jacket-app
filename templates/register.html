@@ -2,30 +2,128 @@
 <html>
 <head>
     <title>Register</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 30px auto;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input[type="text"],
+        input[type="password"],
+        input[type="time"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        input[type="submit"] {
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            text-transform: uppercase;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        input[type="submit"]:hover {
+            background-color: #0056b3;
+        }
+
+        .error-message {
+            color: #dc3545;
+            margin-bottom: 10px;
+        }
+    </style>
 </head>
 <body>
-    <h1>Register</h1>
-    <form method="POST" action="/register">
-        <label for="username">Username:</label>
-        <input type="text" id="username" name="username" required><br><br>
+    <div class="container">
+        <h1>Register</h1>
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        {% for message in messages %}
+                            <li>{{ message }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+        {% endwith %}
 
-        <label for="password">Password:</label>
-        <input type="password" id="password" name="password" required><br><br>
+        <form method="POST" action="/register">
+            <div class="form-group">
+                <label for="username">Username:</label>
+                <input type="text" id="username" name="username" required>
+            </div>
 
-        <label for="phone">Phone Number:</label>
-        <input type="text" id="phone" name="phone" required><br><br>
+            <div class="form-group">
+                <label for="password">Password:</label>
+                <input type="password" id="password" name="password" required>
+            </div>
 
-        <label for="zipcode">Zip Code:</label>
-        <input type="text" id="zipcode" name="zipcode"><br><br>
+            <div class="form-group">
+                <label for="phone">Phone Number:</label>
+                <input type="text" id="phone" name="phone" required>
+            </div>
 
-        <label for="preferred_time">Preferred Time (HH:MM):</label>
-        <input type="text" id="preferred_time" name="preferred_time" required><br><br>
+            <div class="form-group">
+                <label for="zipcode">Zip Code:</label>
+                <input type="text" id="zipcode" name="zipcode">
+            </div>
 
-        <input type="hidden" id="latitude" name="latitude">
-        <input type="hidden" id="longitude" name="longitude">
+            <div class="form-group">
+                <label for="preferred_time">Preferred Time (12-hour format):</label>
+                <input type="text" id="preferred_time" name="preferred_time" required>
+            </div>
 
-        <input type="submit" value="Register">
-    </form>
+            <div class="form-group">
+                <label for="temperature_sensitivity">Temperature Sensitivity:</label>
+                <select id="temperature_sensitivity" name="temperature_sensitivity" class="form-control">
+                    <option value="Cold">Cold</option>
+                    <option value="Normal" selected>Normal</option>
+                    <option value="Warm">Warm</option>
+                </select>
+            </div>
+
+            <input type="hidden" id="latitude" name="latitude" value="">
+            <input type="hidden" id="longitude" name="longitude" value="">
+
+            <button type="submit" class="btn btn-primary">Register</button>
+        </form>
+    </div>
 
     <script>
         window.onload = function() {
@@ -44,6 +142,13 @@
         function showError(error) {
             console.log("Error getting geolocation:", error);
         }
+
+        flatpickr("#preferred_time", {
+            enableTime: true,
+            noCalendar: true,
+            dateFormat: "h:i K", // 12-hour format with AM/PM
+            time_24hr: false // Set to false for 12-hour format
+        });
     </script>
 </body>
 </html>
