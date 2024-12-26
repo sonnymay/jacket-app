@@ -5,6 +5,11 @@
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet">
+    <script src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.1.9/Recharts.min.js"></script>
+    <script src="https://unpkg.com/lucide-react@0.263.1/dist/umd/lucide-react.min.js"></script>
     <style>
         body {
             background-color: #f4f4f4;
@@ -23,61 +28,156 @@
         h1 {
             color: #333;
             text-align: center;
+            margin-bottom: 30px;
         }
         #message {
             text-align: center;
             margin-bottom: 20px;
         }
         .dashboard-item {
-            background-color: #f0f0f0;
-            border: 1px solid #ddd;
-            padding: 10px;
-            margin-bottom: 10px;
-            border-radius: 4px;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            transition: transform 0.2s;
+        }
+        .dashboard-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
         .dashboard-item h3 {
             margin-top: 0;
+            color: #495057;
+            font-size: 1.2rem;
+            margin-bottom: 15px;
         }
         .hidden {
             display: none;
         }
         #weather-icon {
             float: right;
-            height: 40px;
+            height: 50px;
+            margin-top: -10px;
+        }
+        .weather-details {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .temperature {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .condition {
+            color: #6c757d;
+        }
+        .recommendation-icon {
+            font-size: 1.5rem;
+            margin-right: 10px;
+            color: #007bff;
+        }
+        .last-updated {
+            font-size: 0.8rem;
+            color: #6c757d;
+            text-align: right;
+            margin-top: 5px;
+        }
+        .reminder-time {
+            font-size: 1.2rem;
+            color: #2c3e50;
+        }
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 5px;
+        }
+        .status-active {
+            background-color: #28a745;
+        }
+        .status-inactive {
+            background-color: #dc3545;
+        }
+        .refresh-button {
+            background: none;
+            border: none;
+            color: #6c757d;
+            cursor: pointer;
+            padding: 5px;
+            float: right;
+            transition: transform 0.2s;
+        }
+        .refresh-button:hover {
+            transform: rotate(180deg);
+            color: #007bff;
+        }
+        .loading {
+            opacity: 0.7;
+            pointer-events: none;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <!-- Top Bar -->
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <a href="/profile" class="btn btn-primary">Edit Profile</a>
-            <form action="/logout" method="GET" class="m-0">
-                <button type="submit" class="btn btn-secondary">Logout</button>
-            </form>
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <a href="/profile" class="btn btn-primary">
+                    <i class="fas fa-user-edit mr-1"></i> Edit Profile
+                </a>
+            </div>
+            <div>
+                <form action="/logout" method="GET" class="m-0">
+                    <button type="submit" class="btn btn-secondary">
+                        <i class="fas fa-sign-out-alt mr-1"></i> Logout
+                    </button>
+                </form>
+            </div>
         </div>
 
-        <h1>Jacket App Dashboard</h1>
+        <h1><i class="fas fa-tshirt mr-2"></i>Jacket App Dashboard</h1>
 
-        <div id="message">
-            {% if message %}
-                <p>{{ message }}</p>
-            {% endif %}
-        </div>
+        <div id="message" class="alert alert-info hidden"></div>
 
         <!-- Weather & Recommendation Row -->
         <div class="row">
             <div class="col-md-6">
                 <div class="dashboard-item">
-                    <h3>Current Weather</h3>
-                    <img id="weather-icon" src="" alt="Weather Icon">
-                    <p id="current-weather">{{ current_weather }}</p>
+                    <button class="refresh-button" onclick="updateWeather()">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                    <h3><i class="fas fa-cloud mr-2"></i>Current Weather</h3>
+                    <div class="weather-details">
+                        <div>
+                            <span class="temperature" id="temperature"></span>
+                            <div class="condition" id="condition"></div>
+                        </div>
+                        <img id="weather-icon" src="" alt="Weather Icon">
+                        <button id="temp-unit-toggle" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-thermometer-half mr-1"></i>
+                            Switch to °<span id="alternate-unit">C</span>
+                        </button>
+                    </div>
+                    <div class="last-updated" id="last-updated"></div>
                 </div>
             </div>
             <div class="col-md-6">
                 <div class="dashboard-item">
-                    <h3>What to Wear</h3>
-                    <p id="jacket-recommendation">{{ jacket_recommendation }}</p>
+                    <h3><i class="fas fa-vest mr-2"></i>What to Wear</h3>
+                    <p id="jacket-recommendation"></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add after Weather & Recommendation Row -->
+        <div class="row">
+            <div class="col-12">
+                <div class="dashboard-item">
+                    <h3><i class="fas fa-chart-line mr-2"></i>Temperature Trend</h3>
+                    <div id="temperature-chart" style="height: 300px;"></div>
                 </div>
             </div>
         </div>
@@ -86,18 +186,40 @@
         <div class="row">
             <div class="col-md-6">
                 <div class="dashboard-item">
-                    <h3>Daily Reminder Time</h3>
-                    <p id="reminder-time">{{ form_data.preferred_time }}</p>
+                    <h3>
+                        <i class="fas fa-bell mr-2"></i>Daily Reminder
+                        <span class="status-indicator status-active"></span>
+                    </h3>
+                    <div class="reminder-time">
+                        <i class="far fa-clock mr-2"></i>
+                        <span id="reminder-time">{{ form_data.preferred_time }}</span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="dashboard-item">
+                    <h3><i class="fas fa-history mr-2"></i>Recent Updates</h3>
+                    <div id="updates-list">
+                        <!-- Updates will be populated by JavaScript -->
+                    </div>
                 </div>
             </div>
         </div>
+        <div id="react-weather-dashboard"></div>
+        <div id="react-error" class="alert alert-danger hidden"></div>
     </div>
 
-    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/bundle.js') }}"></script>
 
     <script>
+        let lastUpdate = null;
+
         function updateWeather() {
+            const weatherItem = document.querySelector('.weather-details').closest('.dashboard-item');
+            weatherItem.classList.add('loading');
+
             fetch('/weather')
                 .then(response => {
                     if (!response.ok) {
@@ -106,23 +228,74 @@
                     return response.json();
                 })
                 .then(data => {
-                    document.getElementById('current-weather').textContent =
-                        `It's ${data.temperature_f}°F (${data.temperature_c}°C), ${data.condition}.`;
-                    document.getElementById('jacket-recommendation').textContent = data.jacket_recommendation;
+                    document.getElementById('temperature').textContent = 
+                        `${data.temperature_f}°F (${data.temperature_c}°C)`;
+                    document.getElementById('condition').textContent = data.condition;
+                    document.getElementById('jacket-recommendation').innerHTML = 
+                        `<i class="recommendation-icon ${getRecommendationIcon(data.jacket_recommendation)}"></i>${data.jacket_recommendation}`;
                     
-                    // Update weather icon
                     const iconUrl = `https://openweathermap.org/img/wn/${data.icon}@2x.png`;
                     document.getElementById('weather-icon').src = iconUrl;
+
+                    lastUpdate = new Date();
+                    updateLastUpdated();
+                    addUpdate(`Weather updated: ${data.condition}, ${data.temperature_f}°F`);
                 })
                 .catch(error => {
                     console.error('Error fetching weather data:', error);
-                    document.getElementById('current-weather').textContent = 'Weather data not available.';
-                    document.getElementById('jacket-recommendation').textContent = 'Recommendation not available.';
+                    document.getElementById('message').textContent = 'Error updating weather data. Please try again.';
+                    document.getElementById('message').classList.remove('hidden');
+                })
+                .finally(() => {
+                    weatherItem.classList.remove('loading');
                 });
         }
 
+        function updateLastUpdated() {
+            if (lastUpdate) {
+                const timeString = lastUpdate.toLocaleTimeString();
+                document.getElementById('last-updated').textContent = `Last updated: ${timeString}`;
+            }
+        }
+
+        function getRecommendationIcon(recommendation) {
+            if (recommendation.toLowerCase().includes('jacket')) return 'fas fa-jacket';
+            if (recommendation.toLowerCase().includes('coat')) return 'fas fa-coat';
+            return 'fas fa-tshirt';
+        }
+
+        function addUpdate(text) {
+            const updatesList = document.getElementById('updates-list');
+            const update = document.createElement('div');
+            update.className = 'mb-2';
+            update.innerHTML = `
+                <small class="text-muted">${new Date().toLocaleTimeString()}</small>
+                <br>
+                ${text}
+            `;
+            updatesList.insertBefore(update, updatesList.firstChild);
+            
+            // Keep only last 5 updates
+            while (updatesList.children.length > 5) {
+                updatesList.removeChild(updatesList.lastChild);
+            }
+        }
+
+        // Initial update
         updateWeather();
+
+        // Update weather every 30 minutes
         setInterval(updateWeather, 30 * 60 * 1000);
+
+        // Update "last updated" time every minute
+        setInterval(updateLastUpdated, 60 * 1000);
+    </script>
+    <script type="module">
+        import WeatherDashboard from './static/js/WeatherDashboard.jsx';
+        ReactDOM.render(
+            React.createElement(WeatherDashboard), 
+            document.getElementById('react-weather-dashboard')
+        );
     </script>
 </body>
 </html>
