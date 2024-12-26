@@ -172,12 +172,24 @@ def create_app():
     # Weather functions
     @track_api_request('weather_api')
     @cache.memoize(timeout=app.config['CACHE_DEFAULT_TIMEOUT'])
-    def get_weather(zipcode=None, latitude=None, longitude=None):
+    def get_weather(zipcode=None, latitude=None, longitude=None, units='imperial'):
+        """
+        Fetches weather data from OpenWeatherMap API.
+
+        Args:
+            zipcode (str, optional): The zipcode of the location. Defaults to None.
+            latitude (float, optional): The latitude of the location. Defaults to None.
+            longitude (float, optional): The longitude of the location. Defaults to None.
+            units (str, optional): The unit system for the data. Defaults to 'imperial'.
+
+        Returns:
+            dict: The weather data in JSON format.
+        """
         try:
             if zipcode:
-                url = f"http://api.openweathermap.org/data/2.5/weather?zip={zipcode},us&appid={OPENWEATHERMAP_API_KEY}&units=imperial"
+                url = f"http://api.openweathermap.org/data/2.5/weather?zip={zipcode},us&appid={OPENWEATHERMAP_API_KEY}&units={units}"
             elif latitude and longitude:
-                url = f"http://api.openweathermap.org/data/2.5/weather?lat={latitude}&lon={longitude}&appid={OPENWEATHERMAP_API_KEY}&units=imperial"
+                url = f"http://api.openweathermap.org/data/2.5/weather?lat={latitude}&lon={longitude}&appid={OPENWEATHERMAP_API_KEY}&units={units}"
             else:
                 raise ValueError("Either zipcode or latitude/longitude must be provided.")
 
@@ -188,44 +200,34 @@ def create_app():
             logging.error(f"Weather API error: {str(e)}")
             raise WeatherAPIException("Unable to fetch weather data")
 
-    @track_api_request('weather_api')
-    def get_weather_in_celsius(zipcode=None, latitude=None, longitude=None):
-        if zipcode:
-            url = f"http://api.openweathermap.org/data/2.5/weather?zip={zipcode},us&appid={OPENWEATHERMAP_API_KEY}&units=metric"
-        elif latitude and longitude:
-            url = f"http://api.openweathermap.org/data/2.5/weather?lat={latitude}&lon={longitude}&appid={OPENWEATHERMAP_API_KEY}&units=metric"
-        else:
-            raise ValueError("Either zipcode or latitude/longitude must be provided.")
-
-        response = requests.get(url)
-        response.raise_for_status()
-        return response.json()
-
     @track_api_request('forecast_api')
-    def get_forecast(zipcode=None, latitude=None, longitude=None):
-        if zipcode:
-            url = f"http://api.openweathermap.org/data/2.5/forecast?zip={zipcode},us&appid={OPENWEATHERMAP_API_KEY}&units=imperial"
-        elif latitude and longitude:
-            url = f"http://api.openweathermap.org/data/2.5/forecast?lat={latitude}&lon={longitude}&appid={OPENWEATHERMAP_API_KEY}&units=imperial"
-        else:
-            raise ValueError("Either zipcode or latitude/longitude must be provided.")
+    def get_forecast(zipcode=None, latitude=None, longitude=None, units='imperial'):
+        """
+        Fetches forecast data from OpenWeatherMap API.
 
-        response = requests.get(url)
-        response.raise_for_status()
-        return response.json()
+        Args:
+            zipcode (str, optional): The zipcode of the location. Defaults to None.
+            latitude (float, optional): The latitude of the location. Defaults to None.
+            longitude (float, optional): The longitude of the location. Defaults to None.
+            units (str, optional): The unit system for the data. Defaults to 'imperial'.
 
-    @track_api_request('forecast_api')
-    def get_forecast_in_celsius(zipcode=None, latitude=None, longitude=None):
-        if zipcode:
-            url = f"http://api.openweathermap.org/data/2.5/forecast?zip={zipcode},us&appid={OPENWEATHERMAP_API_KEY}&units=metric"
-        elif latitude and longitude:
-            url = f"http://api.openweathermap.org/data/2.5/forecast?lat={latitude}&lon={longitude}&appid={OPENWEATHERMAP_API_KEY}&units=metric"
-        else:
-            raise ValueError("Either zipcode or latitude/longitude must be provided.")
+        Returns:
+            dict: The forecast data in JSON format.
+        """
+        try:
+            if zipcode:
+                url = f"http://api.openweathermap.org/data/2.5/forecast?zip={zipcode},us&appid={OPENWEATHERMAP_API_KEY}&units={units}"
+            elif latitude and longitude:
+                url = f"http://api.openweathermap.org/data/2.5/forecast?lat={latitude}&lon={longitude}&appid={OPENWEATHERMAP_API_KEY}&units={units}"
+            else:
+                raise ValueError("Either zipcode or latitude/longitude must be provided.")
 
-        response = requests.get(url)
-        response.raise_for_status()
-        return response.json()
+            response = requests.get(url)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Forecast API error: {str(e)}")
+            raise WeatherAPIException("Unable to fetch forecast data")
 
     def generate_jacket_recommendation(temperature_f, wind_speed, condition):
         try:
@@ -349,11 +351,11 @@ def create_app():
 
         try:
             if user["latitude"] and user["longitude"]:
-                weather_data_fahrenheit = get_weather(latitude=user["latitude"], longitude=user["longitude"])
-                weather_data_celsius = get_weather_in_celsius(latitude=user["latitude"], longitude=user["longitude"])
+                weather_data_fahrenheit = get_weather(latitude=user["latitude"], longitude=user["longitude"], units='imperial')
+                weather_data_celsius = get_weather(latitude=user["latitude"], longitude=user["longitude"], units='metric')
             else:
-                weather_data_fahrenheit = get_weather(zipcode=user["zipcode"])
-                weather_data_celsius = get_weather_in_celsius(zipcode=user["zipcode"])
+                weather_data_fahrenheit = get_weather(zipcode=user["zipcode"], units='imperial')
+                weather_data_celsius = get_weather(zipcode=user["zipcode"], units='metric')
 
             message = generate_message(user["username"], weather_data_fahrenheit, weather_data_celsius, user)
             send_sms(user["phone_number"], message)
@@ -528,11 +530,11 @@ def create_app():
 
         try:
             if user["latitude"] and user["longitude"]:
-                weather_data_fahrenheit = get_weather(latitude=user["latitude"], longitude=user["longitude"])
-                weather_data_celsius = get_weather_in_celsius(latitude=user["latitude"], longitude=user["longitude"])
+                weather_data_fahrenheit = get_weather(latitude=user["latitude"], longitude=user["longitude"], units='imperial')
+                weather_data_celsius = get_weather(latitude=user["latitude"], longitude=user["longitude"], units='metric')
             else:
-                weather_data_fahrenheit = get_weather(zipcode=user["zipcode"])
-                weather_data_celsius = get_weather_in_celsius(zipcode=user["zipcode"])
+                weather_data_fahrenheit = get_weather(zipcode=user["zipcode"], units='imperial')
+                weather_data_celsius = get_weather(zipcode=user["zipcode"], units='metric')
 
             current_weather = (
                 f"It's {weather_data_fahrenheit['main']['temp']:.1f}°F ({weather_data_celsius['main']['temp']:.1f}°C) and "
@@ -585,11 +587,11 @@ def create_app():
 
         try:
             if user["latitude"] and user["longitude"]:
-                weather_data_fahrenheit = get_weather(latitude=user["latitude"], longitude=user["longitude"])
-                weather_data_celsius = get_weather_in_celsius(latitude=user["latitude"], longitude=user["longitude"])
+                weather_data_fahrenheit = get_weather(latitude=user["latitude"], longitude=user["longitude"], units='imperial')
+                weather_data_celsius = get_weather(latitude=user["latitude"], longitude=user["longitude"], units='metric')
             else:
-                weather_data_fahrenheit = get_weather(zipcode=user["zipcode"])
-                weather_data_celsius = get_weather_in_celsius(zipcode=user["zipcode"])
+                weather_data_fahrenheit = get_weather(zipcode=user["zipcode"], units='imperial')
+                weather_data_celsius = get_weather(zipcode=user["zipcode"], units='metric')
 
             feels_like_f = weather_data_fahrenheit['main']['feels_like']
             feels_like_c = weather_data_celsius['main']['feels_like']

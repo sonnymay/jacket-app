@@ -1,15 +1,9 @@
-
 import React, { useState, useEffect } from 'react';
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
-} from 'recharts';
-import { Thermometer } from 'lucide-react';
 
 const WeatherDashboard = () => {
   const [weatherData, setWeatherData] = useState(null);
   const [isMetric, setIsMetric] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [trendData, setTrendData] = useState([]);
 
   useEffect(() => {
     fetchWeatherData();
@@ -22,24 +16,11 @@ const WeatherDashboard = () => {
       const response = await fetch('/weather');
       const data = await response.json();
       setWeatherData(data);
-      updateTrendData(data);
       setLoading(false);
     } catch (error) {
       console.error('Error fetching weather data:', error);
       setLoading(false);
     }
-  };
-
-  const updateTrendData = (data) => {
-    const timestamp = new Date().toLocaleTimeString();
-    setTrendData(prev => [
-      ...prev,
-      {
-        time: timestamp,
-        temperature: isMetric ? data.temperature_c : data.temperature_f,
-        feelsLike: isMetric ? data.feels_like_c : data.feels_like_f
-      }
-    ].slice(-12));
   };
 
   const toggleUnit = () => setIsMetric(!isMetric);
@@ -79,22 +60,6 @@ const WeatherDashboard = () => {
             <div>Wind: {weatherData.wind_speed} mph</div>
             <div>Humidity: {weatherData.humidity}%</div>
           </div>
-        </div>
-      </div>
-
-      <div className="bg-white p-4 rounded shadow">
-        <h2 className="text-xl font-semibold mb-2">Temperature Trend</h2>
-        <div style={{ height: 250 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={trendData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="time" />
-              <YAxis />
-              <Tooltip />
-              <Line type="monotone" dataKey="temperature" stroke="#3b82f6" name="Temperature" />
-              <Line type="monotone" dataKey="feelsLike" stroke="#9333ea" name="Feels Like" strokeDasharray="3 4 5 2" />
-            </LineChart>
-          </ResponsiveContainer>
         </div>
       </div>
 
