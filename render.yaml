@@ -9,14 +9,14 @@ services:
     plan: free
     envVars:
       - key: OPENWEATHERMAP_API_KEY
-        sync: true
+        sync: false
       - key: OPENAI_API_KEY
-        sync: true
+        sync: false
       - key: TWILIO_ACCOUNT_SID
-        sync: true
+        sync: false
       - key: TWILIO_AUTH_TOKEN
-        sync: true
+        sync: false
       - key: TWILIO_PHONE_NUMBER
-        sync: true
+        sync: false
       - key: SECRET_KEY
-        sync: true
+        sync: false
