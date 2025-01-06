@@ -131,16 +131,16 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form['username']
+        phone = request.form['phone']
         password = request.form['password']
         
         db = get_db()
-        user = db.execute('SELECT * FROM users WHERE username = ?', [username]).fetchone()
+        user = db.execute('SELECT * FROM users WHERE phone_number = ?', [phone]).fetchone()
         
         if user and check_password_hash(user['password'], password):
             session['user_id'] = user['id']
             return redirect(url_for('dashboard'))
-        return "Invalid username or password"
+        return "Invalid phone number or password"
     
     return render_template('login.html')
 
