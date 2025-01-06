@@ -3,9 +3,8 @@ DROP TABLE IF EXISTS user_preferences;
 
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
+    phone_number TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL,
-    phone_number TEXT,
     zipcode TEXT,
     latitude REAL,
     longitude REAL,

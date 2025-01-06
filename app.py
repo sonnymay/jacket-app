@@ -93,21 +93,20 @@ def get_coordinates(zipcode):
         logging.error(f"Error fetching coordinates: {e}")
         return None, None
 
-def create_user(username, password, phone, zipcode, latitude=None, longitude=None, preferred_time=None):
-    if not username or not password:
-        raise ValueError("Username and password are required")
-
-    if not latitude or not longitude:
-        latitude, longitude = get_coordinates(zipcode)
-        if not latitude or not longitude:
-            raise ValueError("Could not determine location from zipcode")
-
+def create_user(phone, password, zipcode, preferred_time, temperature_sensitivity):
+    if not phone or not password:
+        raise ValueError("Phone number and password are required")
+    
     db = get_db()
+    existing_user = db.execute('SELECT * FROM users WHERE phone_number = ?', [phone]).fetchone()
+    if existing_user:
+        raise ValueError("Phone number is already registered")
+    
     hashed_password = generate_password_hash(password)
-    db.execute(
-        'INSERT INTO users (username, password, phone_number, zipcode, latitude, longitude, preferred_time) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [username, hashed_password, phone, zipcode, latitude, longitude, preferred_time]
-    )
+    db.execute('''
+        INSERT INTO users (phone_number, password, zipcode, preferred_time, temperature_sensitivity) 
+        VALUES (?, ?, ?, ?, ?)
+    ''', [phone, hashed_password, zipcode, preferred_time, temperature_sensitivity])
     db.commit()
 
 def create_app():
@@ -148,21 +147,20 @@ def login():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
         phone = request.form['phone']
+        password = request.form['password']
         zipcode = request.form['zipcode']
         preferred_time = request.form['preferred_time']
+        temperature_sensitivity = request.form.get('temperature_sensitivity', 'Normal')
         
-        if not username or not password:
-            return "Username and password are required"
-            
+        if not phone or not password:
+            return "Phone number and password are required"
+        
         try:
-            create_user(username, password, phone, zipcode, None, None, preferred_time)
+            create_user(phone, password, zipcode, preferred_time, temperature_sensitivity)
             return redirect(url_for('login'))
         except ValueError as e:
             return str(e)
-            
     return render_template('register.html')
 
 @app.route('/dashboard')
