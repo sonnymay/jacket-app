@@ -6,6 +6,9 @@ import logging
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 from openai import OpenAI  # Updated import
+from twilio.rest import Client
+from apscheduler.schedulers.background import BackgroundScheduler
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
@@ -180,15 +183,46 @@ def get_current_weather():
 def profile():
     if 'user_id' not in session:
         return redirect(url_for('login'))
-        
+
+    if request.method == 'POST':
+        weather_notification_temp = request.form.get('weather_notification_temp')
+        weather_notification_condition = request.form.get('weather_notification_condition')
+        zipcode = request.form.get('zipcode')
+        phone = request.form.get('phone')
+        preferred_time = request.form.get('preferred_time')
+        latitude = request.form.get('latitude')
+        longitude = request.form.get('longitude')
+
+        db = get_db()
+        db.execute('''
+            UPDATE users 
+            SET weather_notification_temp = ?,
+                weather_notification_condition = ?,
+                zipcode = ?,
+                phone_number = ?,
+                preferred_time = ?,
+                latitude = ?,
+                longitude = ?
+            WHERE id = ?
+        ''', [weather_notification_temp, weather_notification_condition, 
+              zipcode, phone, preferred_time, latitude, longitude, 
+              session['user_id']])
+        db.commit()
+        return jsonify({'message': 'Profile updated successfully'})
+
     user = get_db().execute('SELECT * FROM users WHERE id = ?', [session['user_id']]).fetchone()
+    # Convert sqlite3.Row to dictionary for safer access
+    user_dict = dict(user)
+    
     form_data = {
-        "zipcode": user["zipcode"],
-        "phone": user["phone_number"],
-        "preferred_time": user["preferred_time"],
-        "latitude": user["latitude"],
-        "longitude": user["longitude"],
-        "temperature_sensitivity": user["temperature_sensitivity"]
+        "zipcode": user_dict["zipcode"],
+        "phone": user_dict["phone_number"],
+        "preferred_time": user_dict["preferred_time"],
+        "latitude": user_dict["latitude"],
+        "longitude": user_dict["longitude"],
+        "weather_notification_temp": user_dict.get("weather_notification_temp", 30),
+        "weather_notification_condition": user_dict.get("weather_notification_condition", "Snow"),
+        "temperature_sensitivity": user_dict.get("temperature_sensitivity", "Normal")
     }
     return render_template('profile.html', form_data=form_data)
 
@@ -207,6 +241,82 @@ def get_weather(zipcode=None, latitude=None, longitude=None, units='imperial'):
     except Exception as e:
         logging.error(f"Weather API error: {str(e)}")
         raise WeatherAPIException("Unable to fetch weather data")
+
+def send_text_message(to_number, message_body):
+    account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+    auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+    twilio_number = os.environ.get("TWILIO_PHONE_NUMBER")
+    
+    try:
+        client = Client(account_sid, auth_token)
+        message = client.messages.create(
+            body=message_body,
+            from_=twilio_number,
+            to=to_number
+        )
+        logging.info(f"Message sent! SID: {message.sid}")
+        return True
+    except Exception as e:
+        logging.error(f"Error sending message: {e}")
+        return False
+
+def generate_weather_message(user_data, weather_data):
+    temp_f = round(weather_data['main']['temp'])
+    temp_c = round((temp_f - 32) * 5.0 / 9.0)  # Convert to Celsius
+    condition = weather_data['weather'][0]['main']
+    recommendation = should_wear_jacket(weather_data)
+    
+    return (
+        f"Good morning!\n"
+        f"Current Weather: {temp_f}°F ({temp_c}°C)\n"
+        f"Condition: {condition}\n"
+        f"Recommendation: {recommendation}"
+    )
+
+@app.route('/send-test-message')
+def send_test_message():
+    if 'user_id' not in session:
+        return "Please log in first.", 401
+
+    try:
+        user = get_db().execute('SELECT * FROM users WHERE id = ?', [session['user_id']]).fetchone()
+        weather_data = get_weather(zipcode=user['zipcode'])
+        message = generate_weather_message(user, weather_data)
+        
+        if send_text_message(user['phone_number'], message):
+            return "Message sent successfully!"
+        return "Failed to send message.", 500
+    except Exception as e:
+        logging.error(f"Test message error: {e}")
+        return f"Error: {str(e)}", 500
+
+def send_daily_weather_update():
+    with app.app_context():
+        db = get_db()
+        users = db.execute('SELECT * FROM users').fetchall()
+        for user in users:
+            try:
+                weather_data = get_weather(zipcode=user['zipcode'])
+                temperature = round(weather_data['main']['temp'])
+                condition = weather_data['weather'][0]['main']
+
+                # Only send if conditions meet user preferences
+                if (temperature < user['weather_notification_temp'] or 
+                    condition == user['weather_notification_condition']):
+                    message = generate_weather_message(user, weather_data)
+                    send_text_message(user['phone_number'], message)
+            except Exception as e:
+                logging.error(f"Error sending update to user {user['id']}: {e}")
+
+# Initialize scheduler
+scheduler = BackgroundScheduler()
+scheduler.add_job(
+    func=send_daily_weather_update,
+    trigger='cron',
+    hour=7,
+    minute=30
+)
+scheduler.start()
 
 if __name__ == '__main__':
     if not os.path.exists(DATABASE):

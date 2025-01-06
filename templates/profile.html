@@ -142,6 +142,26 @@
                 </select>
             </div>
 
+            <div class="form-group">
+                <label for="temp-threshold">Notify me if temperature drops below:</label>
+                <input type="number" 
+                       class="form-control" 
+                       id="temp-threshold" 
+                       name="weather_notification_temp" 
+                       value="{{ form_data.weather_notification_temp }}">
+            </div>
+
+            <div class="form-group">
+                <label for="weather-condition">Notify me when weather condition is:</label>
+                <select class="form-control" 
+                        id="weather-condition" 
+                        name="weather_notification_condition">
+                    <option value="Snow" {% if form_data.weather_notification_condition == 'Snow' %}selected{% endif %}>Snow</option>
+                    <option value="Rain" {% if form_data.weather_notification_condition == 'Rain' %}selected{% endif %}>Rain</option>
+                    <option value="Storm" {% if form_data.weather_notification_condition == 'Storm' %}selected{% endif %}>Storm</option>
+                </select>
+            </div>
+
             <input type="hidden" id="latitude" name="latitude" value="{{ form_data.latitude }}">
             <input type="hidden" id="longitude" name="longitude" value="{{ form_data.longitude }}">
 

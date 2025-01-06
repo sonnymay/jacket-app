@@ -9,7 +9,10 @@ CREATE TABLE IF NOT EXISTS users (
     zipcode TEXT,
     latitude REAL,
     longitude REAL,
-    preferred_time TEXT
+    preferred_time TEXT,
+    weather_notification_temp INTEGER DEFAULT 30,
+    weather_notification_condition TEXT DEFAULT 'Snow',
+    temperature_sensitivity TEXT DEFAULT 'Normal'
 );
 
 CREATE TABLE user_preferences (
