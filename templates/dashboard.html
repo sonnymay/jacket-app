@@ -3,13 +3,7 @@
 <head>
     <title>Jacket App - Dashboard</title>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet">
-    <script src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.1.9/Recharts.min.js"></script>
-    <script src="https://unpkg.com/lucide-react@0.263.1/dist/umd/lucide-react.min.js"></script>
     <style>
         body {
             background-color: #f4f4f4;
@@ -17,223 +11,141 @@
             padding: 0;
             font-family: Arial, sans-serif;
         }
-        .container {
+        .dashboard-container {
             max-width: 800px;
-            margin: 30px auto;
-            background-color: #fff;
-            border-radius: 8px;
+            margin: 2rem auto;
             padding: 20px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-        h1 {
-            color: #333;
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        #message {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-        .dashboard-item {
-            background-color: #f8f9fa;
-            border: 1px solid #dee2e6;
-            padding: 15px;
-            margin-bottom: 20px;
+            background: white;
             border-radius: 8px;
-            transition: transform 0.2s;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
-        .dashboard-item:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+
+        .weather-card {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
         }
-        .dashboard-item h3 {
-            margin-top: 0;
-            color: #495057;
-            font-size: 1.2rem;
-            margin-bottom: 15px;
-        }
-        .hidden {
-            display: none;
-        }
-        #weather-icon {
-            float: right;
-            height: 50px;
-            margin-top: -10px;
-        }
-        .weather-details {
+
+        .weather-info {
             display: flex;
             align-items: center;
             justify-content: space-between;
+            margin-bottom: 1rem;
         }
+
         .temperature {
-            font-size: 1.8rem;
+            font-size: 2rem;
             font-weight: bold;
             color: #2c3e50;
         }
-        .condition {
-            color: #6c757d;
+
+        .jacket-recommendation {
+            font-size: 1.2rem;
+            color: #34495e;
+            padding: 1rem;
+            background: #fff;
+            border-radius: 6px;
+            margin-top: 1rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
-        .recommendation-icon {
-            font-size: 1.5rem;
-            margin-right: 10px;
-            color: #007bff;
-        }
+
         .last-updated {
             font-size: 0.8rem;
-            color: #6c757d;
+            color: #7f8c8d;
             text-align: right;
-            margin-top: 5px;
+            margin-top: 0.5rem;
         }
-        .reminder-time {
-            font-size: 1.2rem;
-            color: #2c3e50;
+
+        .reminder-card {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 1.5rem;
         }
-        .status-indicator {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 5px;
-        }
-        .status-active {
-            background-color: #28a745;
-        }
-        .status-inactive {
-            background-color: #dc3545;
-        }
-        .refresh-button {
-            background: none;
-            border: none;
-            color: #6c757d;
-            cursor: pointer;
-            padding: 5px;
-            float: right;
-            transition: transform 0.2s;
-        }
-        .refresh-button:hover {
-            transform: rotate(180deg);
-            color: #007bff;
-        }
-        .loading {
-            opacity: 0.7;
-            pointer-events: none;
+
+        #weather-icon {
+            width: 64px;
+            height: 64px;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <!-- Top Bar -->
+    <div class="dashboard-container">
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <div>
-                <a href="/profile" class="btn btn-primary">
-                    <i class="fas fa-user-edit mr-1"></i> Edit Profile
-                </a>
-            </div>
-            <div>
-                <form action="/logout" method="GET" class="m-0">
-                    <button type="submit" class="btn btn-secondary">
-                        <i class="fas fa-sign-out-alt mr-1"></i> Logout
-                    </button>
-                </form>
+            <h1 class="h3">🧥 Jacket Weather</h1>
+            <div class="btn-group">
+                <a href="/profile" class="btn btn-outline-primary">Edit Profile</a>
+                <a href="/logout" class="btn btn-outline-danger">Logout</a>
             </div>
         </div>
 
-        <h1><i class="fas fa-tshirt mr-2"></i>Jacket App Dashboard</h1>
-
-        <div id="message" class="alert alert-info hidden"></div>
-
-        <!-- Weather & Recommendation Row -->
-        <div class="row">
-            <div class="col-md-6">
-                <div class="dashboard-item">
-                    <button class="refresh-button" onclick="updateWeather()">
-                        <i class="fas fa-sync-alt"></i>
-                    </button>
-                    <h3><i class="fas fa-cloud mr-2"></i>Current Weather</h3>
-                    <div class="weather-details">
-                        <div>
-                            <span class="temperature" id="temperature"></span>
-                            <div class="condition" id="condition"></div>
-                        </div>
-                        <img id="weather-icon" src="" alt="Weather Icon">
-                        <button id="temp-unit-toggle" class="btn btn-outline-primary btn-sm">
-                            <i class="fas fa-thermometer-half mr-1"></i>
-                            Switch to °<span id="alternate-unit">C</span>
-                        </button>
-                    </div>
-                    <div class="last-updated" id="last-updated"></div>
+        <div class="weather-card">
+            <div class="weather-info">
+                <div>
+                    <span class="temperature" id="temperature">--°F (--°C)</span>
+                    <div class="condition" id="condition">Loading...</div>
                 </div>
+                <img id="weather-icon" src="" alt="Weather">
             </div>
-            <div class="col-md-6">
-                <div class="dashboard-item">
-                    <h3><i class="fas fa-vest mr-2"></i>What to Wear</h3>
-                    <p id="jacket-recommendation"></p>
-                </div>
+            <div class="jacket-recommendation" id="jacket-recommendation">
+                Loading recommendation...
             </div>
+            <div class="last-updated" id="last-updated"></div>
         </div>
 
-        <!-- Daily Reminder Time Row -->
-        <div class="row">
-            <div class="col-md-6">
-                <div class="dashboard-item">
-                    <h3>
-                        <i class="fas fa-bell mr-2"></i>Daily Reminder
-                        <span class="status-indicator status-active"></span>
-                    </h3>
-                    <div class="reminder-time">
-                        <i class="far fa-clock mr-2"></i>
-                        <span id="reminder-time">{{ form_data.preferred_time }}</span>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="dashboard-item">
-                    <h3><i class="fas fa-history mr-2"></i>Recent Updates</h3>
-                    <div id="updates-list">
-                        <!-- Updates will be populated by JavaScript -->
-                    </div>
-                </div>
-            </div>
+        <div class="reminder-card">
+            <h3 class="h5 mb-3">📅 Daily Reminder</h3>
+            <p class="mb-0">
+                You'll get weather updates at 
+                <strong id="reminder-time">{{ form_data.preferred_time }}</strong>
+            </p>
         </div>
-        <div id="react-weather-dashboard"></div>
-        <div id="react-error" class="alert alert-danger hidden"></div>
     </div>
 
     <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="{{ url_for('static', filename='js/bundle.js') }}"></script>
-
     <script>
         let lastUpdate = null;
 
         function updateWeather() {
-            const weatherItem = document.querySelector('.weather-details');
+            const weatherItem = document.querySelector('.weather-info');
+            if (!weatherItem) {
+                console.error('Weather details container not found');
+                return;
+            }
+
             weatherItem.classList.add('loading');
             
             fetch('/weather')
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(response.statusText);
-                    }
-                    return response.json();
-                })
+                .then(response => response.json())
                 .then(data => {
-                    if (data.error) {
-                        throw new Error(data.error);
+                    const elements = {
+                        temperature: document.getElementById('temperature'),
+                        condition: document.getElementById('condition'),
+                        weatherIcon: document.getElementById('weather-icon'),
+                        recommendation: document.getElementById('jacket-recommendation')
+                    };
+
+                    if (Object.values(elements).every(el => el)) {
+                        elements.temperature.textContent = 
+                            `${data.temperature_f}°F (${data.temperature_c}°C)`;
+                        elements.condition.textContent = data.condition;
+                        if (data.icon_url) {
+                            elements.weatherIcon.src = data.icon_url;
+                            elements.weatherIcon.alt = data.condition;
+                        }
+                        elements.recommendation.textContent = data.jacket_recommendation;
+                        
+                        lastUpdate = new Date();
+                        updateLastUpdated();
                     }
-                    document.getElementById('temperature').textContent = 
-                        `${data.temperature_f}°F (${data.temperature_c}°C)`;
-                    document.getElementById('condition').textContent = data.condition;
-                    document.getElementById('jacket-recommendation').textContent = data.jacket_recommendation;
-                    document.getElementById('weather-icon').src = data.icon_url;  // Set weather icon
-                    
-                    lastUpdate = new Date();
-                    updateLastUpdated();
                 })
                 .catch(error => {
                     console.error('Error:', error);
-                    document.getElementById('message').textContent = error.message;
-                    document.getElementById('message').classList.remove('hidden');
+                    const message = document.getElementById('message');
+                    if (message) {
+                        message.textContent = error.message;
+                        message.classList.remove('hidden');
+                    }
                 })
                 .finally(() => {
                     weatherItem.classList.remove('loading');
@@ -242,31 +154,12 @@
 
         function updateLastUpdated() {
             if (lastUpdate) {
-                const timeString = lastUpdate.toLocaleTimeString();
+                const timeString = lastUpdate.toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    timeZoneName: 'short'
+                });
                 document.getElementById('last-updated').textContent = `Last updated: ${timeString}`;
-            }
-        }
-
-        function getRecommendationIcon(recommendation) {
-            if (recommendation.toLowerCase().includes('jacket')) return 'fas fa-jacket';
-            if (recommendation.toLowerCase().includes('coat')) return 'fas fa-coat';
-            return 'fas fa-tshirt';
-        }
-
-        function addUpdate(text) {
-            const updatesList = document.getElementById('updates-list');
-            const update = document.createElement('div');
-            update.className = 'mb-2';
-            update.innerHTML = `
-                <small class="text-muted">${new Date().toLocaleTimeString()}</small>
-                <br>
-                ${text}
-            `;
-            updatesList.insertBefore(update, updatesList.firstChild);
-            
-            // Keep only last 5 updates
-            while (updatesList.children.length > 5) {
-                updatesList.removeChild(updatesList.lastChild);
             }
         }
 
@@ -278,13 +171,6 @@
 
         // Update "last updated" time every minute
         setInterval(updateLastUpdated, 60 * 1000);
-    </script>
-    <script type="module">
-        import WeatherDashboard from './static/js/WeatherDashboard.jsx';
-        ReactDOM.render(
-            React.createElement(WeatherDashboard), 
-            document.getElementById('react-weather-dashboard')
-        );
     </script>
 </body>
 </html>

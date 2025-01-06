@@ -9,6 +9,7 @@ from openai import OpenAI  # Updated import
 from twilio.rest import Client
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
+from geopy.geocoders import Nominatim
 
 # Load environment variables
 load_dotenv()
@@ -19,34 +20,46 @@ OPENWEATHERMAP_API_KEY = os.environ.get("OPENWEATHERMAP_API_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)  # Initialize client once
 
+# Add default location (e.g., Madison, WI)
+DEFAULT_LAT = 43.0731
+DEFAULT_LON = -89.4012
+DEFAULT_ZIP = "53717"
+
 # Exception classes
 class WeatherAPIException(Exception):
     pass
 
 # Utility functions
 def generate_jacket_recommendation(temperature_f, wind_speed, condition):
-    # Round values before generating recommendation
+    """Generate a simple jacket recommendation."""
     temperature_f = round(temperature_f)
     wind_speed = round(wind_speed)
-    
-    prompt = f"The temperature is {temperature_f}°F with {condition}. Wind speed is {wind_speed}mph. What type of jacket should I wear?"
+
+    prompt = (
+        f"The temperature is {temperature_f}°F with {condition}. "
+        f"Wind speed is {wind_speed} mph. Suggest a simple, clear jacket recommendation."
+    )
+
     try:
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",  # Using standard OpenAI model
+            model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a weather assistant providing concise jacket recommendations."},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": "You are a weather assistant providing short and clear jacket advice."},
+                {"role": "user", "content": prompt},
             ],
-            max_tokens=30,  # Shorter responses
-            temperature=0.5  # Balanced between creativity and consistency
+            max_tokens=40,
+            temperature=0.2
         )
-        return response.choices[0].message.content.strip()
+        recommendation = response.choices[0].message.content.strip()
+        logging.debug(f"OpenAI recommendation: {recommendation}")
+        return recommendation
     except Exception as e:
         logging.error(f"OpenAI error: {e}")
-        # Fallback recommendation
-        if temperature_f < 50:
-            return "Heavy jacket needed."
-        return "No jacket needed."
+        if temperature_f < 32:
+            return "Wear a thick, warm jacket."
+        elif temperature_f < 50:
+            return "A medium jacket is fine."
+        return "A light jacket will do."
 
 def should_wear_jacket(weather_data):
     # Round values before passing to recommendation function
@@ -69,10 +82,26 @@ def init_db():
             db.cursor().executescript(f.read())
         db.commit()
 
-def create_user(username, password, phone, zipcode, latitude, longitude, preferred_time):
+def get_coordinates(zipcode):
+    try:
+        geolocator = Nominatim(user_agent="jacket-app")
+        location = geolocator.geocode({"postalcode": zipcode, "country": "US"})
+        if location:
+            return location.latitude, location.longitude
+        return None, None
+    except Exception as e:
+        logging.error(f"Error fetching coordinates: {e}")
+        return None, None
+
+def create_user(username, password, phone, zipcode, latitude=None, longitude=None, preferred_time=None):
     if not username or not password:
         raise ValueError("Username and password are required")
-    
+
+    if not latitude or not longitude:
+        latitude, longitude = get_coordinates(zipcode)
+        if not latitude or not longitude:
+            raise ValueError("Could not determine location from zipcode")
+
     db = get_db()
     hashed_password = generate_password_hash(password)
     db.execute(
@@ -142,10 +171,18 @@ def dashboard():
         return redirect(url_for('login'))
         
     user = get_db().execute('SELECT * FROM users WHERE id = ?', [session['user_id']]).fetchone()
+    
+    # Format preferred time with AM/PM
+    preferred_time = user["preferred_time"]
+    if preferred_time:
+        formatted_time = datetime.strptime(preferred_time, "%H:%M").strftime("%I:%M %p")
+    else:
+        formatted_time = "Not Set"
+    
     form_data = {
         "zipcode": user["zipcode"],
         "phone": user["phone_number"],
-        "preferred_time": user["preferred_time"],
+        "preferred_time": formatted_time,
         "latitude": user["latitude"],
         "longitude": user["longitude"]
     }
@@ -227,20 +264,30 @@ def profile():
     return render_template('profile.html', form_data=form_data)
 
 def get_weather(zipcode=None, latitude=None, longitude=None, units='imperial'):
+    """Get weather data with fallback to default location."""
     try:
+        if not OPENWEATHERMAP_API_KEY:
+            raise ValueError("OpenWeatherMap API key is not set")
+
+        # Use provided location or fall back to defaults
         if zipcode:
             url = f"http://api.openweathermap.org/data/2.5/weather?zip={zipcode},us&appid={OPENWEATHERMAP_API_KEY}&units={units}"
         elif latitude and longitude:
             url = f"http://api.openweathermap.org/data/2.5/weather?lat={latitude}&lon={longitude}&appid={OPENWEATHERMAP_API_KEY}&units={units}"
         else:
-            raise ValueError("Either zipcode or latitude/longitude must be provided")
+            logging.warning("No location provided, using default location")
+            url = f"http://api.openweathermap.org/data/2.5/weather?zip={DEFAULT_ZIP},us&appid={OPENWEATHERMAP_API_KEY}&units={units}"
 
+        logging.debug(f"Fetching weather data from: {url}")
         response = requests.get(url)
         response.raise_for_status()
         return response.json()
-    except Exception as e:
-        logging.error(f"Weather API error: {str(e)}")
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Weather API request failed: {e}")
         raise WeatherAPIException("Unable to fetch weather data")
+    except Exception as e:
+        logging.error(f"Unexpected error in get_weather: {e}")
+        raise WeatherAPIException(str(e))
 
 def send_text_message(to_number, message_body):
     account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
@@ -290,6 +337,75 @@ def send_test_message():
         logging.error(f"Test message error: {e}")
         return f"Error: {str(e)}", 500
 
+@app.route('/weekly_weather')
+def get_weekly_weather():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+
+    try:
+        user = get_db().execute('SELECT * FROM users WHERE id = ?', [session['user_id']]).fetchone()
+        
+        # Use user location or fallback to defaults
+        lat = user['latitude'] if user['latitude'] else DEFAULT_LAT
+        lon = user['longitude'] if user['longitude'] else DEFAULT_LON
+        
+        url = f"http://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&units=imperial&appid={OPENWEATHERMAP_API_KEY}"
+        logging.debug(f"Fetching weekly forecast for lat={lat}, lon={lon}")
+        
+        response = requests.get(url)
+        response.raise_for_status()
+        
+        data = response.json()
+        daily_data = {
+            'daily': []
+        }
+        
+        # Process forecast data
+        by_day = {}
+        for item in data['list']:
+            date = datetime.fromtimestamp(item['dt']).date()
+            if date not in by_day:
+                by_day[date] = item
+        
+        daily_data['daily'] = list(by_day.values())
+        return jsonify(daily_data)
+    except Exception as e:
+        logging.error(f"Error in weekly_weather: {e}")
+        return jsonify({'error': 'Unable to fetch weekly forecast'}), 500
+
+@app.route('/hourly_weather')
+def get_hourly_weather():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+
+    try:
+        user = get_db().execute('SELECT * FROM users WHERE id = ?', [session['user_id']]).fetchone()
+        
+        lat = user['latitude'] if user['latitude'] else DEFAULT_LAT
+        lon = user['longitude'] if user['longitude'] else DEFAULT_LON
+        
+        url = f"http://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&units=imperial&appid={OPENWEATHERMAP_API_KEY}"
+        response = requests.get(url)
+        response.raise_for_status()
+        
+        data = response.json()
+        hourly_data = []
+        
+        # Process each hourly entry
+        for item in data['list'][:12]:
+            hourly_data.append({
+                'dt': item['dt'],
+                'temp': round(item['main']['temp']) if 'main' in item and 'temp' in item['main'] else None,
+                'weather': item['weather'][0] if item.get('weather') else {'main': 'Unknown', 'icon': '01d'},
+                'humidity': item['main'].get('humidity', 0),
+                'wind_speed': round(item['wind'].get('speed', 0)) if 'wind' in item else 0
+            })
+        
+        return jsonify({'hourly': hourly_data})
+    except Exception as e:
+        logging.error(f"Error in hourly_weather: {e}")
+        return jsonify({'error': 'Unable to fetch hourly forecast'}), 500
+
 def send_daily_weather_update():
     with app.app_context():
         db = get_db()
@@ -307,6 +423,31 @@ def send_daily_weather_update():
                     send_text_message(user['phone_number'], message)
             except Exception as e:
                 logging.error(f"Error sending update to user {user['id']}: {e}")
+
+@app.route('/test-openai')
+def test_openai():
+    """Test the OpenAI integration."""
+    try:
+        temperature_f = 32
+        wind_speed = 10
+        condition = "Snow"
+        
+        recommendation = generate_jacket_recommendation(temperature_f, wind_speed, condition)
+        return jsonify({
+            "temperature_f": temperature_f,
+            "wind_speed": wind_speed,
+            "condition": condition,
+            "recommendation": recommendation
+        })
+    except Exception as e:
+        logging.error(f"Error testing OpenAI: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/logout')
+def logout():
+    """Handle user logout by clearing session data."""
+    session.clear()
+    return redirect(url_for('login'))
 
 # Initialize scheduler
 scheduler = BackgroundScheduler()
