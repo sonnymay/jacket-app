@@ -1,16 +1,15 @@
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS user_preferences;
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL,
-    phone_number TEXT NOT NULL,
+    phone_number TEXT,
     zipcode TEXT,
     latitude REAL,
     longitude REAL,
-    preferred_time TEXT NOT NULL,
-    temperature_sensitivity TEXT DEFAULT 'Normal'
+    preferred_time TEXT
 );
 
 CREATE TABLE user_preferences (

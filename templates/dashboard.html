@@ -207,33 +207,32 @@
         let lastUpdate = null;
 
         function updateWeather() {
-            const weatherItem = document.querySelector('.weather-details').closest('.dashboard-item');
+            const weatherItem = document.querySelector('.weather-details');
             weatherItem.classList.add('loading');
-
+            
             fetch('/weather')
                 .then(response => {
                     if (!response.ok) {
-                        throw new Error('Network response was not ok');
+                        throw new Error(response.statusText);
                     }
                     return response.json();
                 })
                 .then(data => {
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
                     document.getElementById('temperature').textContent = 
                         `${data.temperature_f}°F (${data.temperature_c}°C)`;
                     document.getElementById('condition').textContent = data.condition;
-                    document.getElementById('jacket-recommendation').innerHTML = 
-                        `<i class="recommendation-icon ${getRecommendationIcon(data.jacket_recommendation)}"></i>${data.jacket_recommendation}`;
+                    document.getElementById('jacket-recommendation').textContent = data.jacket_recommendation;
+                    document.getElementById('weather-icon').src = data.icon_url;  // Set weather icon
                     
-                    const iconUrl = `https://openweathermap.org/img/wn/${data.icon}@2x.png`;
-                    document.getElementById('weather-icon').src = iconUrl;
-
                     lastUpdate = new Date();
                     updateLastUpdated();
-                    addUpdate(`Weather updated: ${data.condition}, ${data.temperature_f}°F`);
                 })
                 .catch(error => {
-                    console.error('Error fetching weather data:', error);
-                    document.getElementById('message').textContent = 'Error updating weather data. Please try again.';
+                    console.error('Error:', error);
+                    document.getElementById('message').textContent = error.message;
                     document.getElementById('message').classList.remove('hidden');
                 })
                 .finally(() => {
