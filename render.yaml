@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: jacket-app
+    env: python
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    autoDeploy: true
+    plan: free
+    envVars:
+      - key: OPENWEATHERMAP_API_KEY
+        sync: true
+      - key: OPENAI_API_KEY
+        sync: true
+      - key: TWILIO_ACCOUNT_SID
+        sync: true
+      - key: TWILIO_AUTH_TOKEN
+        sync: true
+      - key: TWILIO_PHONE_NUMBER
+        sync: true
+      - key: SECRET_KEY
+        sync: true
