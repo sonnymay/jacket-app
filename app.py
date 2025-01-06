@@ -171,13 +171,15 @@ def dashboard():
         return redirect(url_for('login'))
         
     user = get_db().execute('SELECT * FROM users WHERE id = ?', [session['user_id']]).fetchone()
-    
-    # Format preferred time with AM/PM
     preferred_time = user["preferred_time"]
-    if preferred_time:
-        formatted_time = datetime.strptime(preferred_time, "%H:%M").strftime("%I:%M %p")
-    else:
-        formatted_time = "Not Set"
+    try:
+        if "AM" in preferred_time or "PM" in preferred_time:
+            formatted_time = datetime.strptime(preferred_time, "%I:%M %p").strftime("%I:%M %p")
+        else:
+            formatted_time = datetime.strptime(preferred_time, "%H:%M").strftime("%I:%M %p")
+    except ValueError as e:
+        logging.error(f"Error formatting time: {e}")
+        formatted_time = preferred_time
     
     form_data = {
         "zipcode": user["zipcode"],
