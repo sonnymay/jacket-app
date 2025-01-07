@@ -10,6 +10,8 @@ from twilio.rest import Client
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
 from geopy.geocoders import Nominatim
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from pytz import timezone
 
 # Load environment variables
 load_dotenv()
@@ -450,12 +452,18 @@ def logout():
     return redirect(url_for('login'))
 
 # Initialize scheduler
-scheduler = BackgroundScheduler()
+jobstores = {
+    'default': SQLAlchemyJobStore(url='sqlite:///jobs.sqlite')
+}
+scheduler = BackgroundScheduler(jobstores=jobstores, timezone='America/Chicago')
+logging.basicConfig()
+logging.getLogger('apscheduler').setLevel(logging.DEBUG)
 scheduler.add_job(
     func=send_daily_weather_update,
     trigger='cron',
     hour=7,
-    minute=30
+    minute=30,
+    timezone='America/Chicago'
 )
 scheduler.start()
 
