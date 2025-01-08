@@ -12,6 +12,7 @@ from datetime import datetime
 from geopy.geocoders import Nominatim
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from pytz import timezone
+import re
 
 # Load environment variables
 load_dotenv()
@@ -95,12 +96,31 @@ def get_coordinates(zipcode):
         logging.error(f"Error fetching coordinates: {e}")
         return None, None
 
+def validate_phone(phone):
+    """Validate that the phone number is a 10-digit US number."""
+    # Remove any non-digit characters
+    digits = ''.join(filter(str.isdigit, phone))
+    return len(digits) == 10
+
+def format_phone_number(phone):
+    """Format phone number to E.164 format (+1XXXXXXXXXX)."""
+    # Remove any non-digit characters
+    digits = ''.join(filter(str.isdigit, phone))
+    if not validate_phone(digits):
+        raise ValueError("Invalid phone number. Please enter a 10-digit US phone number.")
+    return f'+1{digits}'
+
 def create_user(phone, password, zipcode, preferred_time, temperature_sensitivity):
     if not phone or not password:
         raise ValueError("Phone number and password are required")
     
+    try:
+        formatted_phone = format_phone_number(phone)
+    except ValueError as e:
+        raise ValueError(str(e))
+    
     db = get_db()
-    existing_user = db.execute('SELECT * FROM users WHERE phone_number = ?', [phone]).fetchone()
+    existing_user = db.execute('SELECT * FROM users WHERE phone_number = ?', [formatted_phone]).fetchone()
     if existing_user:
         raise ValueError("Phone number is already registered")
     
@@ -108,7 +128,7 @@ def create_user(phone, password, zipcode, preferred_time, temperature_sensitivit
     db.execute('''
         INSERT INTO users (phone_number, password, zipcode, preferred_time, temperature_sensitivity) 
         VALUES (?, ?, ?, ?, ?)
-    ''', [phone, hashed_password, zipcode, preferred_time, temperature_sensitivity])
+    ''', [formatted_phone, hashed_password, zipcode, preferred_time, temperature_sensitivity])
     db.commit()
 
 def create_app():
@@ -133,9 +153,12 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        phone = request.form['phone']
+        try:
+            phone = format_phone_number(request.form['phone'])
+        except ValueError:
+            return "Invalid phone number format"
+            
         password = request.form['password']
-        
         db = get_db()
         user = db.execute('SELECT * FROM users WHERE phone_number = ?', [phone]).fetchone()
         
@@ -227,7 +250,10 @@ def profile():
         weather_notification_temp = request.form.get('weather_notification_temp')
         weather_notification_condition = request.form.get('weather_notification_condition')
         zipcode = request.form.get('zipcode')
-        phone = request.form.get('phone')
+        try:
+            phone = format_phone_number(request.form.get('phone'))
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
         preferred_time = request.form.get('preferred_time')
         latitude = request.form.get('latitude')
         longitude = request.form.get('longitude')
