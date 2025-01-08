@@ -97,18 +97,31 @@ def get_coordinates(zipcode):
         return None, None
 
 def validate_phone(phone):
-    """Validate that the phone number is a 10-digit US number."""
+    """Validates a 10-digit US phone number."""
     # Remove any non-digit characters
     digits = ''.join(filter(str.isdigit, phone))
-    return len(digits) == 10
+    if len(digits) == 10:
+        logging.info(f"Valid phone number: {digits}")
+        return True
+    logging.error(f"Invalid phone number: {phone} (digits: {digits})")
+    return False
 
 def format_phone_number(phone):
     """Format phone number to E.164 format (+1XXXXXXXXXX)."""
-    # Remove any non-digit characters
+    # Remove any non-digit characters first
     digits = ''.join(filter(str.isdigit, phone))
+    
+    # If number already includes +1, remove it for validation
+    if digits.startswith('1') and len(digits) == 11:
+        digits = digits[1:]
+    
     if not validate_phone(digits):
+        logging.error(f"Phone validation failed for: {phone}")
         raise ValueError("Invalid phone number. Please enter a 10-digit US phone number.")
-    return f'+1{digits}'
+    
+    formatted = f'+1{digits}'
+    logging.info(f"Formatted phone number: {formatted}")
+    return formatted
 
 def create_user(phone, password, zipcode, preferred_time, temperature_sensitivity):
     if not phone or not password:
@@ -247,30 +260,34 @@ def profile():
         return redirect(url_for('login'))
 
     if request.method == 'POST':
-        # Capture all form inputs
-        form_data = request.form.to_dict()
-        logging.info(f"Received form data: {form_data}")
-
-        weather_notification_temp = form_data.get('weather_notification_temp')
-        weather_notification_condition = form_data.get('weather_notification_condition')
-        zipcode = form_data.get('zipcode')
-        preferred_time = form_data.get('preferred_time')
-        
-        logging.info(f"Processing preferred_time: {preferred_time}")
-        
         try:
-            phone = format_phone_number(form_data.get('phone'))
-            # Validate and format the time
-            if not preferred_time:
-                preferred_time = "07:30 AM"  # Default time if none provided
-            formatted_time = datetime.strptime(preferred_time, "%I:%M %p").strftime("%H:%M")
-            logging.info(f"Formatted time for database: {formatted_time}")
+            # Log all received data
+            form_data = request.form.to_dict()
+            logging.info(f"Received profile update data: {form_data}")
             
-            latitude = form_data.get('latitude')
-            longitude = form_data.get('longitude')
-
+            # Format and validate phone number
+            phone = format_phone_number(form_data.get('phone', ''))
+            
+            # Format time
+            preferred_time = form_data.get('preferred_time', '07:30 AM')
+            formatted_time = datetime.strptime(preferred_time, "%I:%M %p").strftime("%H:%M")
+            logging.info(f"Formatted time: {formatted_time}")
+            
+            # Prepare update parameters
+            params = [
+                form_data.get('weather_notification_temp'),
+                form_data.get('weather_notification_condition'),
+                form_data.get('zipcode'),
+                phone,
+                formatted_time,
+                form_data.get('latitude'),
+                form_data.get('longitude'),
+                session['user_id']
+            ]
+            
+            # Execute update
             db = get_db()
-            query = '''
+            db.execute('''
                 UPDATE users 
                 SET weather_notification_temp = ?,
                     weather_notification_condition = ?,
@@ -280,51 +297,43 @@ def profile():
                     latitude = ?,
                     longitude = ?
                 WHERE id = ?
-            '''
-            params = [weather_notification_temp, weather_notification_condition, 
-                     zipcode, phone, formatted_time, latitude, longitude, 
-                     session['user_id']]
-            logging.info(f"Executing update with params: {params}")
-            
-            db.execute(query, params)
+            ''', params)
             db.commit()
-            logging.info("Profile updated successfully in database")
             
-            # Verify the update
-            updated_user = db.execute('SELECT preferred_time FROM users WHERE id = ?', 
-                                    [session['user_id']]).fetchone()
-            logging.info(f"Verified stored preferred_time: {updated_user['preferred_time']}")
+            # Verify update
+            updated = db.execute('SELECT * FROM users WHERE id = ?', 
+                               [session['user_id']]).fetchone()
+            logging.info(f"Updated user data: {dict(updated)}")
             
             return jsonify({'message': 'Profile updated successfully'})
+            
         except ValueError as e:
-            logging.error(f"Profile update error: {str(e)}")
+            logging.error(f"Validation error: {str(e)}")
             return jsonify({'error': str(e)}), 400
         except Exception as e:
-            logging.error(f"Unexpected error in profile update: {str(e)}")
+            logging.error(f"Profile update error: {str(e)}")
             return jsonify({'error': 'Failed to update profile'}), 500
 
-    # GET request handling
+    # Handle GET request
     try:
-        user = get_db().execute('SELECT * FROM users WHERE id = ?', [session['user_id']]).fetchone()
+        user = get_db().execute('SELECT * FROM users WHERE id = ?', 
+                              [session['user_id']]).fetchone()
         user_dict = dict(user)
+        logging.info(f"Retrieved user data: {user_dict}")
         
-        # Handle time format conversion
+        # Format time for display
         stored_time = user_dict.get("preferred_time", "07:30")
-        logging.info(f"Retrieved stored time: {stored_time}")
-        
         try:
             if ":" in stored_time:
                 if "AM" in stored_time.upper() or "PM" in stored_time.upper():
-                    formatted_time = stored_time  # Already in 12-hour format
+                    formatted_time = stored_time
                 else:
-                    # Convert 24-hour to 12-hour format
                     formatted_time = datetime.strptime(stored_time, "%H:%M").strftime("%I:%M %p")
             else:
-                formatted_time = "07:30 AM"  # Default time
-            logging.info(f"Formatted time for display: {formatted_time}")
+                formatted_time = "07:30 AM"
         except ValueError as e:
             logging.error(f"Time format error: {e}")
-            formatted_time = "07:30 AM"  # Default time
+            formatted_time = "07:30 AM"
         
         form_data = {
             "zipcode": user_dict["zipcode"],
@@ -336,6 +345,7 @@ def profile():
             "weather_notification_condition": user_dict.get("weather_notification_condition", "Snow"),
             "temperature_sensitivity": user_dict.get("temperature_sensitivity", "Normal")
         }
+        logging.info(f"Sending form data to template: {form_data}")
         return render_template('profile.html', form_data=form_data)
     except Exception as e:
         logging.error(f"Error loading profile: {str(e)}")
