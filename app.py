@@ -292,9 +292,12 @@ def get_weather(zipcode=None, latitude=None, longitude=None, units='imperial'):
         raise WeatherAPIException(str(e))
 
 def send_text_message(to_number, message_body):
+    logging.info(f"Attempting to send SMS to {to_number}")
     account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
     auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
     twilio_number = os.environ.get("TWILIO_PHONE_NUMBER")
+    
+    logging.info(f"Using Twilio number: {twilio_number}")
     
     try:
         client = Client(account_sid, auth_token)
@@ -303,11 +306,23 @@ def send_text_message(to_number, message_body):
             from_=twilio_number,
             to=to_number
         )
-        logging.info(f"Message sent! SID: {message.sid}")
+        logging.info(f"Message sent successfully! SID: {message.sid}")
         return True
     except Exception as e:
-        logging.error(f"Error sending message: {e}")
+        logging.error(f"Error sending message: {str(e)}")
         return False
+
+@app.route('/test-sms')
+def test_sms():
+    try:
+        logging.info("Test SMS endpoint triggered")
+        result = send_text_message('+1234567890', 'Test message from Render deployment')
+        if result:
+            return "Test message sent successfully!"
+        return "Failed to send test message", 500
+    except Exception as e:
+        logging.error(f"Test SMS error: {str(e)}")
+        return f"Error: {str(e)}", 500
 
 def generate_weather_message(user_data, weather_data):
     temp_f = round(weather_data['main']['temp'])
@@ -409,22 +424,28 @@ def get_hourly_weather():
         return jsonify({'error': 'Unable to fetch hourly forecast'}), 500
 
 def send_daily_weather_update():
+    logging.info("Starting daily weather update job")
     with app.app_context():
         db = get_db()
         users = db.execute('SELECT * FROM users').fetchall()
+        logging.info(f"Found {len(users)} users to process")
+        
         for user in users:
             try:
+                logging.info(f"Processing user {user['id']}")
                 weather_data = get_weather(zipcode=user['zipcode'])
                 temperature = round(weather_data['main']['temp'])
                 condition = weather_data['weather'][0]['main']
+                
+                logging.info(f"Weather for user {user['id']}: {temperature}°F, {condition}")
 
-                # Only send if conditions meet user preferences
                 if (temperature < user['weather_notification_temp'] or 
                     condition == user['weather_notification_condition']):
                     message = generate_weather_message(user, weather_data)
+                    logging.info(f"Sending weather update to user {user['id']}")
                     send_text_message(user['phone_number'], message)
             except Exception as e:
-                logging.error(f"Error sending update to user {user['id']}: {e}")
+                logging.error(f"Error processing user {user['id']}: {str(e)}")
 
 @app.route('/test-openai')
 def test_openai():
