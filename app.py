@@ -318,31 +318,37 @@ def get_weather(zipcode=None, latitude=None, longitude=None, units='imperial'):
         raise WeatherAPIException(str(e))
 
 def send_text_message(to_number, message_body):
-    logging.info(f"Attempting to send SMS to {to_number}")
     account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
     auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
     twilio_number = os.environ.get("TWILIO_PHONE_NUMBER")
     
-    logging.info(f"Using Twilio number: {twilio_number}")
-    
     try:
+        # Ensure the number is formatted correctly
+        formatted_to_number = format_phone_number(to_number)
+        logging.info(f"Sending SMS to: {formatted_to_number}")
+        logging.info(f"Using Twilio number: {twilio_number}")
+        
         client = Client(account_sid, auth_token)
         message = client.messages.create(
             body=message_body,
             from_=twilio_number,
-            to=to_number
+            to=formatted_to_number
         )
         logging.info(f"Message sent successfully! SID: {message.sid}")
         return True
+    except ValueError as e:
+        logging.error(f"Phone number formatting error: {e}")
+        return False
     except Exception as e:
-        logging.error(f"Error sending message: {str(e)}")
+        logging.error(f"Twilio error: {e}")
         return False
 
 @app.route('/test-sms')
 def test_sms():
     try:
         logging.info("Test SMS endpoint triggered")
-        result = send_text_message('+1234567890', 'Test message from Render deployment')
+        # Use your actual test phone number here
+        result = send_text_message('6087702909', 'Test message from Render deployment')
         if result:
             return "Test message sent successfully!"
         return "Failed to send test message", 500
