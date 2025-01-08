@@ -250,39 +250,58 @@ def profile():
         weather_notification_temp = request.form.get('weather_notification_temp')
         weather_notification_condition = request.form.get('weather_notification_condition')
         zipcode = request.form.get('zipcode')
+        preferred_time = request.form.get('preferred_time')
+        
+        logging.info(f"Received profile update - preferred_time: {preferred_time}")
+        
         try:
             phone = format_phone_number(request.form.get('phone'))
-        except ValueError as e:
-            return jsonify({'error': str(e)}), 400
-        preferred_time = request.form.get('preferred_time')
-        latitude = request.form.get('latitude')
-        longitude = request.form.get('longitude')
+            # Validate and format time
+            formatted_time = datetime.strptime(preferred_time, "%I:%M %p").strftime("%H:%M")
+            logging.info(f"Formatted time: {formatted_time}")
+            
+            latitude = request.form.get('latitude')
+            longitude = request.form.get('longitude')
 
-        db = get_db()
-        db.execute('''
-            UPDATE users 
-            SET weather_notification_temp = ?,
-                weather_notification_condition = ?,
-                zipcode = ?,
-                phone_number = ?,
-                preferred_time = ?,
-                latitude = ?,
-                longitude = ?
-            WHERE id = ?
-        ''', [weather_notification_temp, weather_notification_condition, 
-              zipcode, phone, preferred_time, latitude, longitude, 
-              session['user_id']])
-        db.commit()
-        return jsonify({'message': 'Profile updated successfully'})
+            db = get_db()
+            db.execute('''
+                UPDATE users 
+                SET weather_notification_temp = ?,
+                    weather_notification_condition = ?,
+                    zipcode = ?,
+                    phone_number = ?,
+                    preferred_time = ?,
+                    latitude = ?,
+                    longitude = ?
+                WHERE id = ?
+            ''', [weather_notification_temp, weather_notification_condition, 
+                  zipcode, phone, formatted_time, latitude, longitude, 
+                  session['user_id']])
+            db.commit()
+            logging.info("Profile updated successfully")
+            return jsonify({'message': 'Profile updated successfully'})
+        except ValueError as e:
+            logging.error(f"Profile update error: {str(e)}")
+            return jsonify({'error': str(e)}), 400
 
     user = get_db().execute('SELECT * FROM users WHERE id = ?', [session['user_id']]).fetchone()
-    # Convert sqlite3.Row to dictionary for safer access
     user_dict = dict(user)
+    
+    try:
+        # Convert stored time to AM/PM format for display
+        stored_time = user_dict.get("preferred_time", "07:30")
+        if ":" in stored_time:
+            formatted_time = datetime.strptime(stored_time, "%H:%M").strftime("%I:%M %p")
+        else:
+            formatted_time = "07:30 AM"  # Default time
+    except ValueError as e:
+        logging.error(f"Time format error: {e}")
+        formatted_time = "07:30 AM"  # Default time
     
     form_data = {
         "zipcode": user_dict["zipcode"],
         "phone": user_dict["phone_number"],
-        "preferred_time": user_dict["preferred_time"],
+        "preferred_time": formatted_time,
         "latitude": user_dict["latitude"],
         "longitude": user_dict["longitude"],
         "weather_notification_temp": user_dict.get("weather_notification_temp", 30),
