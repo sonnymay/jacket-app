@@ -247,24 +247,30 @@ def profile():
         return redirect(url_for('login'))
 
     if request.method == 'POST':
-        weather_notification_temp = request.form.get('weather_notification_temp')
-        weather_notification_condition = request.form.get('weather_notification_condition')
-        zipcode = request.form.get('zipcode')
-        preferred_time = request.form.get('preferred_time')
+        # Capture all form inputs
+        form_data = request.form.to_dict()
+        logging.info(f"Received form data: {form_data}")
+
+        weather_notification_temp = form_data.get('weather_notification_temp')
+        weather_notification_condition = form_data.get('weather_notification_condition')
+        zipcode = form_data.get('zipcode')
+        preferred_time = form_data.get('preferred_time')
         
-        logging.info(f"Received profile update - preferred_time: {preferred_time}")
+        logging.info(f"Processing preferred_time: {preferred_time}")
         
         try:
-            phone = format_phone_number(request.form.get('phone'))
-            # Validate and format time
+            phone = format_phone_number(form_data.get('phone'))
+            # Validate and format the time
+            if not preferred_time:
+                preferred_time = "07:30 AM"  # Default time if none provided
             formatted_time = datetime.strptime(preferred_time, "%I:%M %p").strftime("%H:%M")
-            logging.info(f"Formatted time: {formatted_time}")
+            logging.info(f"Formatted time for database: {formatted_time}")
             
-            latitude = request.form.get('latitude')
-            longitude = request.form.get('longitude')
+            latitude = form_data.get('latitude')
+            longitude = form_data.get('longitude')
 
             db = get_db()
-            db.execute('''
+            query = '''
                 UPDATE users 
                 SET weather_notification_temp = ?,
                     weather_notification_condition = ?,
@@ -274,41 +280,66 @@ def profile():
                     latitude = ?,
                     longitude = ?
                 WHERE id = ?
-            ''', [weather_notification_temp, weather_notification_condition, 
-                  zipcode, phone, formatted_time, latitude, longitude, 
-                  session['user_id']])
+            '''
+            params = [weather_notification_temp, weather_notification_condition, 
+                     zipcode, phone, formatted_time, latitude, longitude, 
+                     session['user_id']]
+            logging.info(f"Executing update with params: {params}")
+            
+            db.execute(query, params)
             db.commit()
-            logging.info("Profile updated successfully")
+            logging.info("Profile updated successfully in database")
+            
+            # Verify the update
+            updated_user = db.execute('SELECT preferred_time FROM users WHERE id = ?', 
+                                    [session['user_id']]).fetchone()
+            logging.info(f"Verified stored preferred_time: {updated_user['preferred_time']}")
+            
             return jsonify({'message': 'Profile updated successfully'})
         except ValueError as e:
             logging.error(f"Profile update error: {str(e)}")
             return jsonify({'error': str(e)}), 400
+        except Exception as e:
+            logging.error(f"Unexpected error in profile update: {str(e)}")
+            return jsonify({'error': 'Failed to update profile'}), 500
 
-    user = get_db().execute('SELECT * FROM users WHERE id = ?', [session['user_id']]).fetchone()
-    user_dict = dict(user)
-    
+    # GET request handling
     try:
-        # Convert stored time to AM/PM format for display
+        user = get_db().execute('SELECT * FROM users WHERE id = ?', [session['user_id']]).fetchone()
+        user_dict = dict(user)
+        
+        # Handle time format conversion
         stored_time = user_dict.get("preferred_time", "07:30")
-        if ":" in stored_time:
-            formatted_time = datetime.strptime(stored_time, "%H:%M").strftime("%I:%M %p")
-        else:
+        logging.info(f"Retrieved stored time: {stored_time}")
+        
+        try:
+            if ":" in stored_time:
+                if "AM" in stored_time.upper() or "PM" in stored_time.upper():
+                    formatted_time = stored_time  # Already in 12-hour format
+                else:
+                    # Convert 24-hour to 12-hour format
+                    formatted_time = datetime.strptime(stored_time, "%H:%M").strftime("%I:%M %p")
+            else:
+                formatted_time = "07:30 AM"  # Default time
+            logging.info(f"Formatted time for display: {formatted_time}")
+        except ValueError as e:
+            logging.error(f"Time format error: {e}")
             formatted_time = "07:30 AM"  # Default time
-    except ValueError as e:
-        logging.error(f"Time format error: {e}")
-        formatted_time = "07:30 AM"  # Default time
-    
-    form_data = {
-        "zipcode": user_dict["zipcode"],
-        "phone": user_dict["phone_number"],
-        "preferred_time": formatted_time,
-        "latitude": user_dict["latitude"],
-        "longitude": user_dict["longitude"],
-        "weather_notification_temp": user_dict.get("weather_notification_temp", 30),
-        "weather_notification_condition": user_dict.get("weather_notification_condition", "Snow"),
-        "temperature_sensitivity": user_dict.get("temperature_sensitivity", "Normal")
-    }
-    return render_template('profile.html', form_data=form_data)
+        
+        form_data = {
+            "zipcode": user_dict["zipcode"],
+            "phone": user_dict["phone_number"],
+            "preferred_time": formatted_time,
+            "latitude": user_dict["latitude"],
+            "longitude": user_dict["longitude"],
+            "weather_notification_temp": user_dict.get("weather_notification_temp", 30),
+            "weather_notification_condition": user_dict.get("weather_notification_condition", "Snow"),
+            "temperature_sensitivity": user_dict.get("temperature_sensitivity", "Normal")
+        }
+        return render_template('profile.html', form_data=form_data)
+    except Exception as e:
+        logging.error(f"Error loading profile: {str(e)}")
+        return redirect(url_for('login'))
 
 def get_weather(zipcode=None, latitude=None, longitude=None, units='imperial'):
     """Get weather data with fallback to default location."""
