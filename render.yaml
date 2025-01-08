@@ -20,3 +20,11 @@ services:
         sync: false
       - key: SECRET_KEY
         sync: false
+  - type: worker
+    name: jacket-app-scheduler
+    env: python
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: python scheduler.py
+    autoDeploy: true
+    plan: free
