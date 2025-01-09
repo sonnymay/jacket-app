@@ -276,19 +276,27 @@ def dashboard():
     if 'user_id' not in session:
         return redirect(url_for('login'))
         
-    user = get_db().execute('SELECT * FROM users WHERE id = ?', [session['user_id']]).fetchone()
-    preferred_time = user["preferred_time"]
+    db = get_db()
+    user = db.execute('SELECT * FROM users WHERE id = ?', [session['user_id']]).fetchone()
+    
+    if user is None:
+        # If user not found, clear session and redirect to login
+        session.clear()
+        return redirect(url_for('login'))
+    
     try:
-        if "AM" in preferred_time or "PM" in preferred_time:
+        preferred_time = user["preferred_time"] or "07:30"  # Default if None
+        
+        if "AM" in preferred_time.upper() or "PM" in preferred_time.upper():
             formatted_time = datetime.strptime(preferred_time, "%I:%M %p").strftime("%I:%M %p")
         else:
             formatted_time = datetime.strptime(preferred_time, "%H:%M").strftime("%I:%M %p")
-    except ValueError as e:
+    except Exception as e:
         logging.error(f"Error formatting time: {e}")
-        formatted_time = preferred_time
+        formatted_time = "07:30 AM"  # Default on error
     
     form_data = {
-        "zipcode": user["zipcode"],
+        "zipcode": user["zipcode"] or "",
         "phone": user["phone_number"],
         "preferred_time": formatted_time,
         "latitude": user["latitude"],
@@ -302,9 +310,19 @@ def get_current_weather():
         return jsonify({'error': 'Not logged in'}), 401
 
     try:
-        user = get_db().execute('SELECT * FROM users WHERE id = ?', [session['user_id']]).fetchone()
+        db = get_db()
+        user = db.execute('SELECT * FROM users WHERE id = ?', [session['user_id']]).fetchone()
+        
+        if user is None:
+            return jsonify({'error': 'User not found'}), 404
+            
+        if not user['zipcode']:
+            return jsonify({'error': 'No zipcode set'}), 400
         
         weather_data_f = get_weather(zipcode=user['zipcode'])
+        if not weather_data_f:
+            return jsonify({'error': 'Unable to fetch weather data'}), 500
+            
         weather_data_c = get_weather(zipcode=user['zipcode'], units='metric')
         
         # Extract the weather icon from OpenWeatherMap response
@@ -318,7 +336,7 @@ def get_current_weather():
             'wind_speed': round(weather_data_f['wind']['speed']),
             'humidity': weather_data_f['main']['humidity'],
             'jacket_recommendation': should_wear_jacket(weather_data_f),
-            'icon_url': icon_url  # Add icon URL to response
+            'icon_url': icon_url
         })
     except Exception as e:
         logging.error(f"Error in get_current_weather: {e}")
