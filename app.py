@@ -516,7 +516,9 @@ def get_hourly_weather():
         return jsonify({'error': 'Unable to fetch hourly forecast'}), 500
 
 def send_daily_weather_update():
-    logging.info("Starting daily weather update job")
+    current_time = datetime.now(timezone('America/Chicago'))
+    logging.info(f"Starting daily weather update job at {current_time}")
+    
     with app.app_context():
         try:
             db = get_db()
@@ -525,21 +527,26 @@ def send_daily_weather_update():
             
             for user in users:
                 try:
-                    logging.info(f"Processing user {user['id']}")
+                    logging.info(f"Processing user {user['id']} at preferred time {user['preferred_time']}")
                     weather_data = get_weather(zipcode=user['zipcode'])
                     temperature = round(weather_data['main']['temp'])
                     condition = weather_data['weather'][0]['main']
                     
                     logging.info(f"Weather for user {user['id']}: {temperature}°F, {condition}")
+                    logging.info(f"User preferences: temp < {user['weather_notification_temp']}, condition: {user['weather_notification_condition']}")
 
                     if (temperature < user['weather_notification_temp'] or 
                         condition == user['weather_notification_condition']):
                         message = generate_weather_message(user, weather_data)
-                        logging.info(f"Sending weather update to user {user['id']}")
+                        logging.info(f"Sending update to {user['phone_number']}")
+                        
                         if send_text_message(user['phone_number'], message):
                             logging.info(f"Successfully sent message to user {user['id']}")
                         else:
                             logging.error(f"Failed to send message to user {user['id']}")
+                    else:
+                        logging.info(f"Conditions not met for user {user['id']}, skipping notification")
+                        
                 except Exception as e:
                     logging.error(f"Error processing user {user['id']}: {str(e)}")
         except Exception as e:
