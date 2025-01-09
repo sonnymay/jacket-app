@@ -763,53 +763,7 @@ def schedule_user_jobs():
         logging.exception("[SCHEDULER] Full exception details:")
         return jsonify({"error": str(e)}), 500
 
-# Initialize scheduler
-jobstores = {
-    'default': SQLAlchemyJobStore(url='sqlite:///jobs.sqlite')
-}
-scheduler = BackgroundScheduler(
-    jobstores=jobstores, 
-    timezone=timezone('America/Chicago'),
-    logger=logging.getLogger('apscheduler')
-)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logging.getLogger('apscheduler').setLevel(logging.DEBUG)
-
-# Add job with enhanced logging
-try:
-    job = scheduler.add_job(
-        func=send_daily_weather_update,
-        trigger='cron',
-        hour=7,
-        minute=30,
-        id='daily_weather_job',
-        name='Daily Weather Update',
-        replace_existing=True
-    )
-    logging.info(f"[SCHEDULER] Job scheduled successfully")
-    logging.info(f"[SCHEDULER] Next run time: {job.next_run_time}")
-except Exception as e:
-    logging.error(f"[SCHEDULER] Error scheduling job: {str(e)}")
-    logging.exception("[SCHEDULER] Full exception details:")
-
 if __name__ == '__main__':
     if not os.path.exists(DATABASE):
         init_db()
-    
-    # Initialize scheduler with proper timezone
-    scheduler = BackgroundScheduler(
-        jobstores=jobstores,
-        timezone=timezone('America/Chicago'),
-        logger=logging.getLogger('apscheduler')
-    )
-    
-    # Schedule jobs for existing users
-    with app.app_context():
-        schedule_user_jobs()
-    
-    scheduler.start()
     app.run(debug=True, host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))

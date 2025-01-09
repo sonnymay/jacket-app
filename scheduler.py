@@ -13,7 +13,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def log_job_status(event):
-    """Enhanced job execution status logging."""
+    """Log job execution status."""
     if event.exception:
         logger.error(f'[JOB] Failed: {event.job_id}')
         logger.error(f'[JOB] Exception: {event.exception}')
@@ -22,49 +22,32 @@ def log_job_status(event):
         logger.info(f'[JOB] Completed: {event.job_id}')
         logger.info(f'[JOB] Next run: {event.job.next_run_time}')
 
-def convert_to_utc(local_time_str, local_tz_str="America/Chicago"):
-    """Convert local time to UTC for scheduling."""
-    local_tz = timezone(local_tz_str)
-    local_time = datetime.strptime(local_time_str, "%H:%M").replace(tzinfo=local_tz)
-    utc_time = local_time.astimezone(utc)
-    return utc_time.hour, utc_time.minute
-
-# Initialize scheduler with enhanced monitoring
+# Initialize scheduler
 scheduler = BlockingScheduler(timezone=timezone('America/Chicago'))
 scheduler.add_listener(log_job_status)
-
-# Check environment variables
-logger.info("[ENV] Checking environment variables:")
-for var in ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE_NUMBER', 
-            'OPENWEATHERMAP_API_KEY', 'OPENAI_API_KEY']:
-    logger.info(f"[ENV] {var}: {'Present' if os.getenv(var) else 'Missing'}")
-
-try:
-    # Convert local time (7:30 AM CT) to UTC for scheduling
-    utc_hour, utc_minute = convert_to_utc("07:30")
-    logger.info(f"Scheduling job for {utc_hour:02d}:{utc_minute:02d} UTC")
-    
-    # Add the daily weather update job
-    job = scheduler.add_job(
-        func=send_daily_weather_update,
-        trigger='cron',
-        hour=utc_hour,
-        minute=utc_minute,
-        id='daily_weather_job',
-        name='Daily Weather Update',
-        replace_existing=True
-    )
-    logger.info(f"Job scheduled: {job}")
-    logger.info(f"Next run time (UTC): {job.next_run_time}")
-except Exception as e:
-    logger.error(f"Failed to schedule job: {e}")
 
 if __name__ == "__main__":
     logger.info("[WORKER] Starting scheduler process")
     logger.info(f"[WORKER] Process ID: {os.getpid()}")
     
     try:
-        # Add test job for immediate verification
+        # Start the scheduler first
+        scheduler.start()
+        
+        # Add the daily update job
+        job = scheduler.add_job(
+            func=send_daily_weather_update,
+            trigger='cron',
+            hour=7,
+            minute=30,
+            id='daily_weather_job',
+            name='Daily Weather Update',
+            replace_existing=True
+        )
+        logger.info(f"[WORKER] Daily job scheduled: {job}")
+        logger.info(f"[WORKER] Next run time: {job.next_run_time}")
+        
+        # Add test job to verify setup
         test_job = scheduler.add_job(
             func=send_daily_weather_update,
             trigger='date',
@@ -77,7 +60,6 @@ if __name__ == "__main__":
         logger.info("[WORKER] Currently scheduled jobs:")
         scheduler.print_jobs()
         
-        scheduler.start()
     except Exception as e:
         logger.error(f"[WORKER] Startup error: {e}")
         logger.exception("[WORKER] Full exception details:")
