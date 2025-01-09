@@ -124,25 +124,37 @@ def format_phone_number(phone):
     return formatted
 
 def create_user(phone, password, zipcode, preferred_time, temperature_sensitivity):
+    logging.info(f"[REGISTRATION] Creating user with phone: {phone}")
+    
     if not phone or not password:
+        logging.error("[REGISTRATION] Missing required fields")
         raise ValueError("Phone number and password are required")
     
     try:
         formatted_phone = format_phone_number(phone)
-    except ValueError as e:
-        raise ValueError(str(e))
-    
-    db = get_db()
-    existing_user = db.execute('SELECT * FROM users WHERE phone_number = ?', [formatted_phone]).fetchone()
-    if existing_user:
-        raise ValueError("Phone number is already registered")
-    
-    hashed_password = generate_password_hash(password)
-    db.execute('''
-        INSERT INTO users (phone_number, password, zipcode, preferred_time, temperature_sensitivity) 
-        VALUES (?, ?, ?, ?, ?)
-    ''', [formatted_phone, hashed_password, zipcode, preferred_time, temperature_sensitivity])
-    db.commit()
+        logging.info(f"[REGISTRATION] Formatted phone: {formatted_phone}")
+        
+        db = get_db()
+        existing_user = db.execute('SELECT * FROM users WHERE phone_number = ?', [formatted_phone]).fetchone()
+        if existing_user:
+            logging.error(f"[REGISTRATION] Phone number already registered: {formatted_phone}")
+            raise ValueError("Phone number is already registered")
+        
+        hashed_password = generate_password_hash(password)
+        db.execute('''
+            INSERT INTO users (phone_number, password, zipcode, preferred_time, temperature_sensitivity) 
+            VALUES (?, ?, ?, ?, ?)
+        ''', [formatted_phone, hashed_password, zipcode, preferred_time, temperature_sensitivity])
+        db.commit()
+        
+        # Verify user was created
+        new_user = db.execute('SELECT * FROM users WHERE phone_number = ?', [formatted_phone]).fetchone()
+        logging.info(f"[REGISTRATION] User created successfully: {dict(new_user)}")
+        
+    except Exception as e:
+        logging.error(f"[REGISTRATION] Error creating user: {str(e)}")
+        logging.exception("[REGISTRATION] Full exception details:")
+        raise
 
 def create_app():
     app = Flask(__name__, 
@@ -167,18 +179,33 @@ def index():
 def login():
     if request.method == 'POST':
         try:
-            phone = format_phone_number(request.form['phone'])
-        except ValueError:
-            return "Invalid phone number format"
+            phone = request.form['phone']
+            password = request.form['password']
+            logging.info(f"[LOGIN] Attempt for phone: {phone}")
             
-        password = request.form['password']
-        db = get_db()
-        user = db.execute('SELECT * FROM users WHERE phone_number = ?', [phone]).fetchone()
-        
-        if user and check_password_hash(user['password'], password):
-            session['user_id'] = user['id']
-            return redirect(url_for('dashboard'))
-        return "Invalid phone number or password"
+            formatted_phone = format_phone_number(phone)
+            logging.info(f"[LOGIN] Formatted phone: {formatted_phone}")
+            
+            db = get_db()
+            user = db.execute('SELECT * FROM users WHERE phone_number = ?', [formatted_phone]).fetchone()
+            
+            if user:
+                logging.info(f"[LOGIN] User found: {dict(user)}")
+                if check_password_hash(user['password'], password):
+                    logging.info(f"[LOGIN] Password valid for user {user['id']}")
+                    session['user_id'] = user['id']
+                    return redirect(url_for('dashboard'))
+                else:
+                    logging.error(f"[LOGIN] Invalid password for user {user['id']}")
+            else:
+                logging.error(f"[LOGIN] No user found with phone: {formatted_phone}")
+            
+            return "Invalid phone number or password"
+            
+        except Exception as e:
+            logging.error(f"[LOGIN] Error during login: {str(e)}")
+            logging.exception("[LOGIN] Full exception details:")
+            return "Error during login"
     
     return render_template('login.html')
 
@@ -524,42 +551,41 @@ def send_daily_weather_update():
     current_time = datetime.now(timezone('America/Chicago'))
     logging.info(f"[SCHEDULER] Daily update started at {current_time}")
     logging.info(f"[SCHEDULER] Process ID: {os.getpid()}")
+    logging.info(f"[SCHEDULER] Environment variables:")
+    logging.info(f"[SCHEDULER] TWILIO_ACCOUNT_SID: {'Present' if os.environ.get('TWILIO_ACCOUNT_SID') else 'Missing'}")
+    logging.info(f"[SCHEDULER] TWILIO_AUTH_TOKEN: {'Present' if os.environ.get('TWILIO_AUTH_TOKEN') else 'Missing'}")
+    logging.info(f"[SCHEDULER] TWILIO_PHONE_NUMBER: {os.environ.get('TWILIO_PHONE_NUMBER')}")
     
     with app.app_context():
         try:
             db = get_db()
             users = db.execute('SELECT * FROM users').fetchall()
-            logging.info(f"[SCHEDULER] Found {len(users)} users")
+            logging.info(f"[SCHEDULER] Found {len(users)} users to process")
             
             for user in users:
                 try:
-                    logging.info(f"[SCHEDULER] Processing user {user['id']}")
-                    logging.info(f"[SCHEDULER] User time preference: {user['preferred_time']}")
+                    user_dict = dict(user)
+                    logging.info(f"[SCHEDULER] Processing user: {user_dict}")
                     
                     weather_data = get_weather(zipcode=user['zipcode'])
                     temperature = round(weather_data['main']['temp'])
                     condition = weather_data['weather'][0]['main']
                     
-                    logging.info(f"[SCHEDULER] Current conditions: {temperature}°F, {condition}")
-                    logging.info(f"[SCHEDULER] User thresholds: temp={user['weather_notification_temp']}, condition={user['weather_notification_condition']}")
-
-                    should_send = (temperature < user['weather_notification_temp'] or 
-                                 condition == user['weather_notification_condition'])
-                    logging.info(f"[SCHEDULER] Should send message: {should_send}")
-
+                    should_send = (
+                        temperature < user['weather_notification_temp'] or 
+                        condition == user['weather_notification_condition']
+                    )
+                    logging.info(f"[SCHEDULER] Conditions met for sending: {should_send}")
+                    
                     if should_send:
                         message = generate_weather_message(user, weather_data)
-                        logging.info(f"[SCHEDULER] Attempting message send to {user['phone_number']}")
-                        result = send_text_message(user['phone_number'], message)
-                        logging.info(f"[SCHEDULER] Message send result: {result}")
-                    else:
-                        logging.info(f"[SCHEDULER] Skipping notification for user {user['id']}")
-                        
+                        logging.info(f"[SCHEDULER] Sending message to {user['phone_number']}")
+                        send_text_message(user['phone_number'], message)
                 except Exception as e:
-                    logging.error(f"[SCHEDULER] User processing error: {str(e)}")
+                    logging.error(f"[SCHEDULER] Error processing user {user['id']}: {str(e)}")
                     logging.exception("[SCHEDULER] Full exception details:")
         except Exception as e:
-            logging.error(f"[SCHEDULER] Critical error in daily update: {str(e)}")
+            logging.error(f"[SCHEDULER] Critical error: {str(e)}")
             logging.exception("[SCHEDULER] Full exception details:")
 
 @app.route('/test-openai')
@@ -625,19 +651,30 @@ scheduler = BackgroundScheduler(
     timezone=timezone('America/Chicago'),
     logger=logging.getLogger('apscheduler')
 )
-logging.basicConfig()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logging.getLogger('apscheduler').setLevel(logging.DEBUG)
 
 # Add job with enhanced logging
-scheduler.add_job(
-    func=send_daily_weather_update,
-    trigger='cron',
-    hour=7,
-    minute=30,
-    id='daily_weather_job',
-    name='Daily Weather Update',
-    replace_existing=True
-)
+try:
+    job = scheduler.add_job(
+        func=send_daily_weather_update,
+        trigger='cron',
+        hour=7,
+        minute=30,
+        id='daily_weather_job',
+        name='Daily Weather Update',
+        replace_existing=True
+    )
+    logging.info(f"[SCHEDULER] Job scheduled successfully")
+    logging.info(f"[SCHEDULER] Next run time: {job.next_run_time}")
+except Exception as e:
+    logging.error(f"[SCHEDULER] Error scheduling job: {str(e)}")
+    logging.exception("[SCHEDULER] Full exception details:")
+
 scheduler.start()
 
 if __name__ == '__main__':
