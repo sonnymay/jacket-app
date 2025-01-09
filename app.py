@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from openai import OpenAI  # Updated import
 from twilio.rest import Client
 from apscheduler.schedulers.background import BackgroundScheduler
-from datetime import datetime
+from datetime import datetime, timedelta  # Added timedelta
 from geopy.geocoders import Nominatim
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from pytz import timezone
