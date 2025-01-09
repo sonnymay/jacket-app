@@ -575,46 +575,57 @@ def get_hourly_weather():
         return jsonify({'error': 'Unable to fetch hourly forecast'}), 500
 
 def send_daily_weather_update(user_id=None):
-    """Send weather update with enhanced logging."""
     current_time = datetime.now(pytz.timezone('America/Chicago'))
     logging.info(f"[SCHEDULER] Weather update triggered at {current_time}")
     
     if hasattr(send_daily_weather_update, 'is_running') and send_daily_weather_update.is_running:
         logging.info("[SCHEDULER] Already processing, skipping this run")
         return
+        
     send_daily_weather_update.is_running = True
     
     try:
         with app.app_context():
+            db = get_db()
+            users = []
+            
             try:
-                db = get_db()
-                if user_id:
-                    users = [db.execute('SELECT * FROM users WHERE id = ?', [user_id]).fetchone()]
+                if user_id is not None:
+                    user = db.execute('SELECT * FROM users WHERE id = ?', [user_id]).fetchone()
+                    if user:
+                        users = [user]
                     logging.info(f"[SCHEDULER] Processing single user: {user_id}")
                 else:
                     users = db.execute('SELECT * FROM users').fetchall()
-                    logging.info(f"[SCHEDULER] Processing {len(users)} users")
-                
-                for user in users:
-                    try:
-                        user_dict = dict(user)
-                        logging.info(f"[SCHEDULER] Processing user {user_dict['id']}")
-                        
-                        weather_data = get_weather(zipcode=user_dict['zipcode'])
-                        message = generate_weather_message(user_dict, weather_data)
-                        logging.info(f"[SCHEDULER] Generated message: {message}")
-                        
-                        result = send_text_message(user_dict['phone_number'], message)
-                        logging.info(f"[SCHEDULER] Message sent result: {result}")
-                        
-                    except Exception as e:
-                        logging.error(f"[SCHEDULER] Error processing user {user['id']}: {e}")
-                        logging.exception("[SCHEDULER] User processing error details:")
-                        continue
-                        
+                    logging.info(f"[SCHEDULER] Processing all users: {len(users) if users else 0}")
             except Exception as e:
-                logging.error(f"[SCHEDULER] Critical error: {e}")
-                logging.exception("[SCHEDULER] Full stack trace:")
+                logging.error(f"[SCHEDULER] Database error: {str(e)}")
+                return
+            
+            if not users:
+                logging.info("[SCHEDULER] No users found in database")
+                return
+                
+            for user in users:
+                try:
+                    if user is None:
+                        continue
+                    user_dict = dict(user)
+                    logging.info(f"[SCHEDULER] Processing user: {user_dict['id']}")
+                    
+                    weather_data = get_weather(zipcode=user_dict['zipcode'])
+                    message = generate_weather_message(user_dict, weather_data)
+                    
+                    logging.info(f"[SCHEDULER] Sending message to {user_dict['phone_number']}")
+                    result = send_text_message(user_dict['phone_number'], message)
+                    logging.info(f"[SCHEDULER] Message sent result: {result}")
+                    
+                except Exception as e:
+                    logging.error(f"[SCHEDULER] Error processing user: {str(e)}")
+                    continue
+    except Exception as e:
+        logging.error(f"[SCHEDULER] Critical error: {str(e)}")
+        logging.exception("[SCHEDULER] Full stack trace:")
     finally:
         send_daily_weather_update.is_running = False
 
