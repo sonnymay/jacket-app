@@ -802,52 +802,37 @@ def scheduler_status():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/test-message-now')
-def test_message_now():
-    """Test endpoint to send message immediately."""
-    logging.info("[TEST] Testing immediate message send")
-    try:
-        if 'user_id' not in session:
-            # Get first user from database
-            user = get_db().execute('SELECT id FROM users LIMIT 1').fetchone()
-            if user:
-                user_id = user['id']
-            else:
-                return "No users found in database", 404
-        else:
-            user_id = session['user_id']
-            
-        logging.info(f"[TEST] Triggering message for user {user_id}")
-        send_daily_weather_update(user_id)
-        return "Test message triggered - check logs"
-    except Exception as e:
-        logging.error(f"Test message error: {e}")
-        logging.exception("[TEST] Full error details:")
-        return f"Error: {str(e)}", 500
+# Initialize scheduler at app startup
+jobstores = {
+    'default': SQLAlchemyJobStore(url='sqlite:///jobs.sqlite')
+}
 
-@app.route('/scheduler-status')
-def scheduler_status():
-    """Check scheduler status and jobs."""
+scheduler = BackgroundScheduler(
+    jobstores=jobstores,
+    timezone=pytz.timezone('America/Chicago'),
+    daemon=True
+)
+
+if not scheduler.running:
+    scheduler.start()
+    logging.info("[INIT] Scheduler started")
+
     try:
-        jobs = scheduler.get_jobs()
-        status = {
-            'scheduler_running': scheduler.running,
-            'scheduler_timezone': str(scheduler.timezone),
-            'current_time': datetime.now(scheduler.timezone).strftime('%Y-%m-%d %H:%M:%S %Z'),
-            'job_count': len(jobs),
-            'jobs': [{
-                'id': job.id,
-                'next_run_time': str(job.next_run_time),
-                'trigger': str(job.trigger),
-                'pending': job.pending
-            } for job in jobs]
-        }
-        logging.info(f"[STATUS] Scheduler status: {status}")
-        return jsonify(status)
+        # Remove any existing jobs first
+        scheduler.remove_all_jobs()
+        
+        # Add new job
+        job = scheduler.add_job(
+            func=send_daily_weather_update,
+            trigger='cron',
+            hour=7,
+            minute=30,
+            id='daily_weather_job',
+            replace_existing=True
+        )
+        logging.info(f"[SCHEDULER] Job scheduled. Next run at: {job.next_run_time}")
     except Exception as e:
-        logging.error(f"[STATUS] Error checking scheduler: {e}")
-        logging.exception("[STATUS] Full error details:")
-        return jsonify({'error': str(e)}), 500
+        logging.error(f"[SCHEDULER] Failed to schedule job: {e}")
 
 @app.route('/test-openai')
 def test_openai():
