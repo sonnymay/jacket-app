@@ -574,7 +574,7 @@ def get_hourly_weather():
         logging.error(f"Error in hourly_weather: {e}")
         return jsonify({'error': 'Unable to fetch hourly forecast'}), 500
 
-def send_daily_weather_update():
+def send_daily_weather_update(user_id=None):
     """Send weather update with enhanced logging."""
     current_time = datetime.now(pytz.timezone('America/Chicago'))
     logging.info(f"[SCHEDULER] Weather update triggered at {current_time}")
