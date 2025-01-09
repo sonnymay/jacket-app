@@ -574,65 +574,73 @@ def get_hourly_weather():
         logging.error(f"Error in hourly_weather: {e}")
         return jsonify({'error': 'Unable to fetch hourly forecast'}), 500
 
-def send_daily_weather_update(user_id=None):
+def send_daily_weather_update():
     """Send weather update with enhanced logging."""
     current_time = datetime.now(pytz.timezone('America/Chicago'))
     logging.info(f"[SCHEDULER] Weather update triggered at {current_time}")
     
-    with app.app_context():
-        try:
-            db = get_db()
-            if user_id:
-                users = [db.execute('SELECT * FROM users WHERE id = ?', [user_id]).fetchone()]
-                logging.info(f"[SCHEDULER] Processing single user: {user_id}")
-            else:
-                users = db.execute('SELECT * FROM users').fetchall()
-                logging.info(f"[SCHEDULER] Processing {len(users)} users")
-            
-            for user in users:
-                try:
-                    user_dict = dict(user)
-                    logging.info(f"[SCHEDULER] Processing user {user_dict['id']}")
-                    
-                    weather_data = get_weather(zipcode=user_dict['zipcode'])
-                    message = generate_weather_message(user_dict, weather_data)
-                    logging.info(f"[SCHEDULER] Generated message: {message}")
-                    
-                    result = send_text_message(user_dict['phone_number'], message)
-                    logging.info(f"[SCHEDULER] Message sent result: {result}")
-                    
-                except Exception as e:
-                    logging.error(f"[SCHEDULER] Error processing user {user['id']}: {e}")
-                    logging.exception("[SCHEDULER] User processing error details:")
-                    continue
-                    
-        except Exception as e:
-            logging.error(f"[SCHEDULER] Critical error: {e}")
-            logging.exception("[SCHEDULER] Full stack trace:")
+    if hasattr(send_daily_weather_update, 'is_running') and send_daily_weather_update.is_running:
+        logging.info("[SCHEDULER] Already processing, skipping this run")
+        return
+    send_daily_weather_update.is_running = True
+    
+    try:
+        with app.app_context():
+            try:
+                db = get_db()
+                if user_id:
+                    users = [db.execute('SELECT * FROM users WHERE id = ?', [user_id]).fetchone()]
+                    logging.info(f"[SCHEDULER] Processing single user: {user_id}")
+                else:
+                    users = db.execute('SELECT * FROM users').fetchall()
+                    logging.info(f"[SCHEDULER] Processing {len(users)} users")
+                
+                for user in users:
+                    try:
+                        user_dict = dict(user)
+                        logging.info(f"[SCHEDULER] Processing user {user_dict['id']}")
+                        
+                        weather_data = get_weather(zipcode=user_dict['zipcode'])
+                        message = generate_weather_message(user_dict, weather_data)
+                        logging.info(f"[SCHEDULER] Generated message: {message}")
+                        
+                        result = send_text_message(user_dict['phone_number'], message)
+                        logging.info(f"[SCHEDULER] Message sent result: {result}")
+                        
+                    except Exception as e:
+                        logging.error(f"[SCHEDULER] Error processing user {user['id']}: {e}")
+                        logging.exception("[SCHEDULER] User processing error details:")
+                        continue
+                        
+            except Exception as e:
+                logging.error(f"[SCHEDULER] Critical error: {e}")
+                logging.exception("[SCHEDULER] Full stack trace:")
+    finally:
+        send_daily_weather_update.is_running = False
 
-jobstores = {
-    'default': SQLAlchemyJobStore(url='sqlite:///jobs.sqlite')
-}
-
-scheduler = BackgroundScheduler(
-    jobstores=jobstores,
-    timezone=pytz.timezone('America/Chicago'),
-    daemon=True
-)
-scheduler.start()
-logging.info("[INIT] Scheduler started")
-
-try:
-    job = scheduler.add_job(
-        func=send_daily_weather_update,
-        trigger='interval',
-        minutes=2,
-        id='weather_job',
-        replace_existing=True
+# Ensure only one scheduler instance
+if 'scheduler' not in globals():
+    scheduler = BackgroundScheduler(
+        jobstores=jobstores,
+        timezone=pytz.timezone('America/Chicago'),
+        daemon=True
     )
-    logging.info(f"[SCHEDULER] Job scheduled. Next run at: {job.next_run_time}")
-except Exception as e:
-    logging.error(f"[SCHEDULER] Failed to schedule job: {e}")
+    scheduler.start()
+    logging.info("[INIT] Scheduler started")
+
+    scheduler.remove_all_jobs()
+
+    try:
+        job = scheduler.add_job(
+            func=send_daily_weather_update,
+            trigger='interval',
+            minutes=2,
+            id='weather_job',
+            replace_existing=True
+        )
+        logging.info(f"[SCHEDULER] Job scheduled. Next run at: {job.next_run_time}")
+    except Exception as e:
+        logging.error(f"[SCHEDULER] Failed to schedule job: {e}")
 
 @app.route('/scheduler-debug')
 def scheduler_debug():
