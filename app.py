@@ -103,12 +103,31 @@ def get_db():
 
 def init_db():
     """Initialize the database and create tables"""
-    with app.app_context():
-        db = get_db()
-        with app.open_resource('schema.sql', mode='r') as f:
-            db.cursor().executescript(f.read())
-        db.commit()
-        logging.info("[DB] Database initialized successfully")
+    try:
+        with app.app_context():
+            db = get_db()
+            # Define the schema directly here instead of reading from file
+            schema = '''
+            DROP TABLE IF EXISTS users;
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                phone_number TEXT NOT NULL UNIQUE,
+                password TEXT NOT NULL,
+                zipcode TEXT,
+                preferred_time TEXT DEFAULT '07:30',
+                temperature_sensitivity TEXT DEFAULT 'Normal',
+                latitude REAL,
+                longitude REAL,
+                weather_notification_temp INTEGER DEFAULT 32,
+                weather_notification_condition TEXT DEFAULT 'Snow'
+            );
+            '''
+            db.executescript(schema)
+            db.commit()
+            logging.info("[DB] Database initialized successfully")
+    except Exception as e:
+        logging.error(f"[DB] Error initializing database: {e}")
+        raise
 
 def get_coordinates(zipcode):
     try:
@@ -928,8 +947,14 @@ if __name__ == '__main__':
         logging.info("[INIT] Creating new database")
         init_db()
     else:
-        logging.info("[INIT] Database exists")
-    
+        try:
+            db = get_db()
+            db.execute("SELECT 1 FROM users LIMIT 1")
+            logging.info("[INIT] Database tables verified")
+        except sqlite3.OperationalError:
+            logging.info("[INIT] Tables missing, initializing database")
+            init_db()
+
     jobstores = {
         'default': SQLAlchemyJobStore(url='sqlite:///jobs.sqlite')
     }
