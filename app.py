@@ -378,15 +378,20 @@ def get_weather(zipcode=None, latitude=None, longitude=None, units='imperial'):
         raise WeatherAPIException(str(e))
 
 def send_text_message(to_number, message_body):
-    logging.info(f"Preparing to send message to {to_number}")
-    logging.info(f"Message body: {message_body}")
+    logging.info(f"[SMS] Starting SMS send process at {datetime.now()}")
+    logging.info(f"[SMS] Target number: {to_number}")
+    logging.info(f"[SMS] Message length: {len(message_body)} chars")
     
     account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
     auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
     twilio_number = os.environ.get("TWILIO_PHONE_NUMBER")
     
-    logging.info(f"Using Twilio number: {twilio_number}")
-    logging.info(f"Account SID: {account_sid[:5]}...{account_sid[-5:]}")  # Log partial SID for security
+    if not all([account_sid, auth_token, twilio_number]):
+        logging.error("[SMS] Missing Twilio credentials")
+        return False
+    
+    logging.info(f"[SMS] Using Twilio number: {twilio_number}")
+    logging.info(f"[SMS] Account SID prefix: {account_sid[:5]}...")
     
     try:
         client = Client(account_sid, auth_token)
@@ -395,11 +400,12 @@ def send_text_message(to_number, message_body):
             from_=twilio_number,
             to=to_number
         )
-        logging.info(f"Message sent successfully! SID: {message.sid}")
+        logging.info(f"[SMS] Message sent successfully! SID: {message.sid}")
+        logging.info(f"[SMS] Full Twilio response: {message.__dict__}")
         return True
     except Exception as e:
-        logging.error(f"Twilio error: {str(e)}")
-        logging.exception(e)  # Log the full stack trace
+        logging.error(f"[SMS] Twilio error: {str(e)}")
+        logging.exception("[SMS] Full exception details:")
         return False
 
 @app.route('/test-sms')
@@ -516,45 +522,45 @@ def get_hourly_weather():
 
 def send_daily_weather_update():
     current_time = datetime.now(timezone('America/Chicago'))
-    logging.info(f"send_daily_weather_update started at {current_time}")
+    logging.info(f"[SCHEDULER] Daily update started at {current_time}")
+    logging.info(f"[SCHEDULER] Process ID: {os.getpid()}")
     
     with app.app_context():
         try:
             db = get_db()
             users = db.execute('SELECT * FROM users').fetchall()
-            logging.info(f"Found {len(users)} users to process")
+            logging.info(f"[SCHEDULER] Found {len(users)} users")
             
             for user in users:
                 try:
-                    logging.info(f"Processing user {user['id']} with phone {user['phone_number']}")
-                    preferred_time = user["preferred_time"]
-                    logging.info(f"User preferred time: {preferred_time}")
+                    logging.info(f"[SCHEDULER] Processing user {user['id']}")
+                    logging.info(f"[SCHEDULER] User time preference: {user['preferred_time']}")
                     
                     weather_data = get_weather(zipcode=user['zipcode'])
                     temperature = round(weather_data['main']['temp'])
                     condition = weather_data['weather'][0]['main']
                     
-                    logging.info(f"Weather: {temperature}°F, {condition}")
-                    logging.info(f"User preferences: temp < {user['weather_notification_temp']}, condition: {user['weather_notification_condition']}")
+                    logging.info(f"[SCHEDULER] Current conditions: {temperature}°F, {condition}")
+                    logging.info(f"[SCHEDULER] User thresholds: temp={user['weather_notification_temp']}, condition={user['weather_notification_condition']}")
 
-                    if (temperature < user['weather_notification_temp'] or 
-                        condition == user['weather_notification_condition']):
+                    should_send = (temperature < user['weather_notification_temp'] or 
+                                 condition == user['weather_notification_condition'])
+                    logging.info(f"[SCHEDULER] Should send message: {should_send}")
+
+                    if should_send:
                         message = generate_weather_message(user, weather_data)
-                        logging.info(f"Sending message: {message}")
-                        
-                        if send_text_message(user['phone_number'], message):
-                            logging.info(f"Successfully sent message to {user['phone_number']}")
-                        else:
-                            logging.error(f"Failed to send message to {user['phone_number']}")
+                        logging.info(f"[SCHEDULER] Attempting message send to {user['phone_number']}")
+                        result = send_text_message(user['phone_number'], message)
+                        logging.info(f"[SCHEDULER] Message send result: {result}")
                     else:
-                        logging.info(f"Conditions not met for user {user['id']}, skipping notification")
+                        logging.info(f"[SCHEDULER] Skipping notification for user {user['id']}")
                         
                 except Exception as e:
-                    logging.error(f"Error processing user {user['id']}: {str(e)}")
-                    logging.exception(e)  # This will log the full stack trace
+                    logging.error(f"[SCHEDULER] User processing error: {str(e)}")
+                    logging.exception("[SCHEDULER] Full exception details:")
         except Exception as e:
-            logging.error(f"Error in daily weather update job: {str(e)}")
-            logging.exception(e)
+            logging.error(f"[SCHEDULER] Critical error in daily update: {str(e)}")
+            logging.exception("[SCHEDULER] Full exception details:")
 
 @app.route('/test-openai')
 def test_openai():
@@ -585,10 +591,9 @@ def logout():
 def test_scheduler():
     """Test endpoint to trigger the scheduler immediately."""
     try:
-        logging.info("Adding test scheduler job")
-        
-        # Schedule job to run in 10 seconds
+        logging.info("[TEST] Adding immediate test job")
         run_date = datetime.now() + timedelta(seconds=10)
+        
         scheduler.add_job(
             func=send_daily_weather_update,
             trigger='date',
@@ -597,12 +602,19 @@ def test_scheduler():
             replace_existing=True
         )
         
-        logging.info(f"Test job scheduled for: {run_date}")
-        return "Test scheduler job added. Check logs in 10 seconds."
+        logging.info(f"[TEST] Job scheduled for: {run_date}")
+        return jsonify({
+            "status": "success",
+            "message": "Test job scheduled",
+            "scheduled_time": run_date.strftime("%Y-%m-%d %H:%M:%S")
+        })
     except Exception as e:
-        logging.error(f"Error scheduling test job: {str(e)}")
-        logging.exception(e)
-        return f"Error: {str(e)}", 500
+        logging.error(f"[TEST] Scheduler test error: {str(e)}")
+        logging.exception("[TEST] Full exception details:")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
 # Initialize scheduler
 jobstores = {
