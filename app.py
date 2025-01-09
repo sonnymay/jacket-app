@@ -104,27 +104,26 @@ def get_db():
 def init_db():
     """Initialize the database and create tables"""
     try:
-        with app.app_context():
-            db = get_db()
-            # Define the schema directly here instead of reading from file
-            schema = '''
-            DROP TABLE IF EXISTS users;
-            CREATE TABLE users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                phone_number TEXT NOT NULL UNIQUE,
-                password TEXT NOT NULL,
-                zipcode TEXT,
-                preferred_time TEXT DEFAULT '07:30',
-                temperature_sensitivity TEXT DEFAULT 'Normal',
-                latitude REAL,
-                longitude REAL,
-                weather_notification_temp INTEGER DEFAULT 32,
-                weather_notification_condition TEXT DEFAULT 'Snow'
-            );
-            '''
-            db.executescript(schema)
-            db.commit()
-            logging.info("[DB] Database initialized successfully")
+        db = get_db()
+        # Define the schema directly here instead of reading from file
+        schema = '''
+        DROP TABLE IF EXISTS users;
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            phone_number TEXT NOT NULL UNIQUE,
+            password TEXT NOT NULL,
+            zipcode TEXT,
+            preferred_time TEXT DEFAULT '07:30',
+            temperature_sensitivity TEXT DEFAULT 'Normal',
+            latitude REAL,
+            longitude REAL,
+            weather_notification_temp INTEGER DEFAULT 32,
+            weather_notification_condition TEXT DEFAULT 'Snow'
+        );
+        '''
+        db.executescript(schema)
+        db.commit()
+        logging.info("[DB] Database initialized successfully")
     except Exception as e:
         logging.error(f"[DB] Error initializing database: {e}")
         raise
@@ -943,39 +942,37 @@ def test_scheduler_now():
         }), 500
 
 if __name__ == '__main__':
-    if not os.path.exists(DATABASE):
-        logging.info("[INIT] Creating new database")
-        init_db()
-    else:
-        try:
-            db = get_db()
-            db.execute("SELECT 1 FROM users LIMIT 1")
-            logging.info("[INIT] Database tables verified")
-        except sqlite3.OperationalError:
-            logging.info("[INIT] Tables missing, initializing database")
+    with app.app_context():
+        if not os.path.exists(DATABASE):
+            logging.info("[INIT] Creating new database")
             init_db()
+        else:
+            try:
+                db = get_db()
+                db.execute("SELECT 1 FROM users LIMIT 1")
+                logging.info("[INIT] Database tables verified")
+            except sqlite3.OperationalError:
+                logging.info("[INIT] Tables missing, initializing database")
+                init_db()
 
-    jobstores = {
-        'default': SQLAlchemyJobStore(url='sqlite:///jobs.sqlite')
-    }
-    
-    if 'scheduler' not in globals():
+        jobstores = {
+            'default': SQLAlchemyJobStore(url='sqlite:///jobs.sqlite')
+        }
         scheduler = BackgroundScheduler(
             jobstores=jobstores,
             timezone=pytz.timezone('America/Chicago'),
             daemon=True
         )
-        # ...existing code...
+        try:
+            scheduler.remove_all_jobs()
+        except:
+            pass
+
         scheduler.start()
         logging.info("[INIT] Scheduler started")
-        
+
         try:
             hour, minute = 7, 30
-            try:
-                hour, minute = get_user_preferred_time()
-            except Exception as e:
-                logging.error(f"[SCHEDULER] Error getting preferred time, using default: {e}")
-            
             job = scheduler.add_job(
                 func=send_daily_weather_update,
                 trigger='cron',
@@ -984,7 +981,7 @@ if __name__ == '__main__':
                 id='daily_weather_job',
                 replace_existing=True
             )
-            logging.info(f"[SCHEDULER] Job scheduled for {hour:02d}:{minute:02d}. Next run at: {job.next_run_time}")
+            logging.info(f"[SCHEDULER] Job scheduled for {hour:02d}:{minute:02d} daily. Next run at: {job.next_run_time}")
         except Exception as e:
             logging.error(f"[SCHEDULER] Failed to schedule job: {e}")
 
