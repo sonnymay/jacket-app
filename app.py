@@ -102,11 +102,13 @@ def get_db():
     return db
 
 def init_db():
+    """Initialize the database and create tables"""
     with app.app_context():
         db = get_db()
         with app.open_resource('schema.sql', mode='r') as f:
             db.cursor().executescript(f.read())
         db.commit()
+        logging.info("[DB] Database initialized successfully")
 
 def get_coordinates(zipcode):
     try:
@@ -923,5 +925,42 @@ def test_scheduler_now():
 
 if __name__ == '__main__':
     if not os.path.exists(DATABASE):
+        logging.info("[INIT] Creating new database")
         init_db()
+    else:
+        logging.info("[INIT] Database exists")
+    
+    jobstores = {
+        'default': SQLAlchemyJobStore(url='sqlite:///jobs.sqlite')
+    }
+    
+    if 'scheduler' not in globals():
+        scheduler = BackgroundScheduler(
+            jobstores=jobstores,
+            timezone=pytz.timezone('America/Chicago'),
+            daemon=True
+        )
+        # ...existing code...
+        scheduler.start()
+        logging.info("[INIT] Scheduler started")
+        
+        try:
+            hour, minute = 7, 30
+            try:
+                hour, minute = get_user_preferred_time()
+            except Exception as e:
+                logging.error(f"[SCHEDULER] Error getting preferred time, using default: {e}")
+            
+            job = scheduler.add_job(
+                func=send_daily_weather_update,
+                trigger='cron',
+                hour=hour,
+                minute=minute,
+                id='daily_weather_job',
+                replace_existing=True
+            )
+            logging.info(f"[SCHEDULER] Job scheduled for {hour:02d}:{minute:02d}. Next run at: {job.next_run_time}")
+        except Exception as e:
+            logging.error(f"[SCHEDULER] Failed to schedule job: {e}")
+
     app.run(debug=True, host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
