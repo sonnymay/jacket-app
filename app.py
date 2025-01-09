@@ -518,26 +518,32 @@ def get_hourly_weather():
 def send_daily_weather_update():
     logging.info("Starting daily weather update job")
     with app.app_context():
-        db = get_db()
-        users = db.execute('SELECT * FROM users').fetchall()
-        logging.info(f"Found {len(users)} users to process")
-        
-        for user in users:
-            try:
-                logging.info(f"Processing user {user['id']}")
-                weather_data = get_weather(zipcode=user['zipcode'])
-                temperature = round(weather_data['main']['temp'])
-                condition = weather_data['weather'][0]['main']
-                
-                logging.info(f"Weather for user {user['id']}: {temperature}°F, {condition}")
+        try:
+            db = get_db()
+            users = db.execute('SELECT * FROM users').fetchall()
+            logging.info(f"Found {len(users)} users to process")
+            
+            for user in users:
+                try:
+                    logging.info(f"Processing user {user['id']}")
+                    weather_data = get_weather(zipcode=user['zipcode'])
+                    temperature = round(weather_data['main']['temp'])
+                    condition = weather_data['weather'][0]['main']
+                    
+                    logging.info(f"Weather for user {user['id']}: {temperature}°F, {condition}")
 
-                if (temperature < user['weather_notification_temp'] or 
-                    condition == user['weather_notification_condition']):
-                    message = generate_weather_message(user, weather_data)
-                    logging.info(f"Sending weather update to user {user['id']}")
-                    send_text_message(user['phone_number'], message)
-            except Exception as e:
-                logging.error(f"Error processing user {user['id']}: {str(e)}")
+                    if (temperature < user['weather_notification_temp'] or 
+                        condition == user['weather_notification_condition']):
+                        message = generate_weather_message(user, weather_data)
+                        logging.info(f"Sending weather update to user {user['id']}")
+                        if send_text_message(user['phone_number'], message):
+                            logging.info(f"Successfully sent message to user {user['id']}")
+                        else:
+                            logging.error(f"Failed to send message to user {user['id']}")
+                except Exception as e:
+                    logging.error(f"Error processing user {user['id']}: {str(e)}")
+        except Exception as e:
+            logging.error(f"Error in daily weather update job: {str(e)}")
 
 @app.route('/test-openai')
 def test_openai():
