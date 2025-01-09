@@ -33,22 +33,31 @@ DEFAULT_ZIP = "53717"
 class WeatherAPIException(Exception):
     pass
 
+# Add debug logging for API keys at startup
+logging.info("[INIT] Checking environment variables:")
+logging.info(f"[INIT] OpenAI API Key present: {bool(OPENAI_API_KEY)}")
+logging.info(f"[INIT] Twilio credentials present: {bool(os.getenv('TWILIO_ACCOUNT_SID'))} / {bool(os.getenv('TWILIO_AUTH_TOKEN'))}")
+logging.info(f"[INIT] Twilio phone number: {os.getenv('TWILIO_PHONE_NUMBER')}")
+
 # Utility functions
 def generate_jacket_recommendation(temperature_f, wind_speed, condition):
     """Generate a simple jacket recommendation."""
-    logging.info(f"[OPENAI] Generating recommendation for: {temperature_f}°F, {wind_speed}mph, {condition}")
+    logging.info(f"[OPENAI] Starting recommendation for {temperature_f}°F")
     
     if not OPENAI_API_KEY:
-        logging.error("[OPENAI] API key is missing")
+        logging.error("[OPENAI] No API key available")
         return get_fallback_recommendation(temperature_f)
-        
+    
     try:
-        logging.info("[OPENAI] Attempting API call")
+        logging.info("[OPENAI] Initializing client")
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        
         prompt = (
             f"The temperature is {temperature_f}°F with {condition}. "
             f"Wind speed is {wind_speed} mph. Suggest a simple, clear jacket recommendation."
         )
         
+        logging.info("[OPENAI] Sending request")
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",  # Changed to a more reliable model
             messages=[
@@ -58,11 +67,12 @@ def generate_jacket_recommendation(temperature_f, wind_speed, condition):
             max_tokens=40,
             temperature=0.2
         )
+        
         recommendation = response.choices[0].message.content.strip()
         logging.info(f"[OPENAI] Success: {recommendation}")
         return recommendation
     except Exception as e:
-        logging.error(f"[OPENAI] API error: {str(e)}")
+        logging.error(f"[OPENAI] Error: {str(e)}")
         logging.exception("[OPENAI] Full exception details:")
         return get_fallback_recommendation(temperature_f)
 
@@ -415,33 +425,37 @@ def get_weather(zipcode=None, latitude=None, longitude=None, units='imperial'):
         raise WeatherAPIException(str(e))
 
 def send_text_message(to_number, message_body):
-    logging.info(f"[SMS] Starting SMS send process at {datetime.now()}")
-    logging.info(f"[SMS] Target number: {to_number}")
-    logging.info(f"[SMS] Message length: {len(message_body)} chars")
+    """Send SMS with enhanced error handling and logging."""
+    logging.info(f"[SMS] Starting send process")
     
-    account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
-    auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
-    twilio_number = os.environ.get("TWILIO_PHONE_NUMBER")
+    # Check credentials
+    account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+    auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+    twilio_number = os.getenv("TWILIO_PHONE_NUMBER")
     
     if not all([account_sid, auth_token, twilio_number]):
         logging.error("[SMS] Missing Twilio credentials")
         return False
     
-    logging.info(f"[SMS] Using Twilio number: {twilio_number}")
-    logging.info(f"[SMS] Account SID prefix: {account_sid[:5]}...")
-    
     try:
+        # Format phone number
+        formatted_number = format_phone_number(to_number)
+        logging.info(f"[SMS] Sending to: {formatted_number}")
+        
+        # Initialize client
         client = Client(account_sid, auth_token)
+        
+        # Send message
         message = client.messages.create(
             body=message_body,
             from_=twilio_number,
-            to=to_number
+            to=formatted_number
         )
-        logging.info(f"[SMS] Message sent successfully! SID: {message.sid}")
-        logging.info(f"[SMS] Full Twilio response: {message.__dict__}")
+        
+        logging.info(f"[SMS] Success! SID: {message.sid}")
         return True
     except Exception as e:
-        logging.error(f"[SMS] Twilio error: {str(e)}")
+        logging.error(f"[SMS] Error: {str(e)}")
         logging.exception("[SMS] Full exception details:")
         return False
 
@@ -608,27 +622,33 @@ def send_daily_weather_update():
 
 @app.route('/test-openai')
 def test_openai():
-    """Test the OpenAI integration."""
+    """Test endpoint for OpenAI integration."""
     try:
-        logging.info("[TEST] Testing OpenAI integration")
-        logging.info(f"[TEST] Using API key: {OPENAI_API_KEY[:5]}...")
+        logging.info("[TEST] Starting OpenAI test")
+        client = OpenAI(api_key=OPENAI_API_KEY)
         
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": "Hello, OpenAI!"}],
+            messages=[{"role": "user", "content": "Say 'OpenAI test successful' if you can read this."}],
             max_tokens=10
         )
+        
         result = response.choices[0].message.content
-        logging.info(f"[TEST] OpenAI test successful: {result}")
+        logging.info(f"[TEST] OpenAI response: {result}")
         
         return jsonify({
             "status": "success",
-            "message": result
+            "response": result,
+            "api_key_present": bool(OPENAI_API_KEY)
         })
     except Exception as e:
         logging.error(f"[TEST] OpenAI test failed: {str(e)}")
         logging.exception("[TEST] Full exception details:")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({
+            "status": "error",
+            "error": str(e),
+            "api_key_present": bool(OPENAI_API_KEY)
+        }), 500
 
 @app.route('/logout')
 def logout():
@@ -664,6 +684,43 @@ def test_scheduler():
             "status": "error",
             "message": str(e)
         }), 500
+
+@app.route('/test-all')
+def test_all():
+    """Test both OpenAI and SMS functionality."""
+    results = {
+        "openai": {"status": None, "error": None},
+        "sms": {"status": None, "error": None},
+        "env_vars": {
+            "openai_key": bool(OPENAI_API_KEY),
+            "twilio_sid": bool(os.getenv("TWILIO_ACCOUNT_SID")),
+            "twilio_token": bool(os.getenv("TWILIO_AUTH_TOKEN")),
+            "twilio_number": bool(os.getenv("TWILIO_PHONE_NUMBER"))
+        }
+    }
+    
+    # Test OpenAI
+    try:
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": "Test"}],
+            max_tokens=5
+        )
+        results["openai"]["status"] = "success"
+    except Exception as e:
+        results["openai"]["status"] = "error"
+        results["openai"]["error"] = str(e)
+    
+    # Test SMS
+    try:
+        sms_result = send_text_message("+16087702909", "Test message")
+        results["sms"]["status"] = "success" if sms_result else "error"
+    except Exception as e:
+        results["sms"]["status"] = "error"
+        results["sms"]["error"] = str(e)
+    
+    return jsonify(results)
 
 # Initialize scheduler
 jobstores = {
