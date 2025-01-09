@@ -49,7 +49,7 @@ logging.info(f"[ENV] OPENAI_API_KEY: {'Present' if OPENAI_API_KEY else 'Missing'
 
 # Utility functions
 def generate_jacket_recommendation(temperature_f, wind_speed, condition):
-    """Generate a friendly jacket recommendation."""
+    """Generate a short, friendly jacket recommendation."""
     logging.info(f"[OPENAI] Generating recommendation for {temperature_f}°F")
     
     if not OPENAI_API_KEY:
@@ -58,17 +58,17 @@ def generate_jacket_recommendation(temperature_f, wind_speed, condition):
     
     try:
         prompt = (
-            f"The weather report shows {temperature_f}°F and {condition} with wind speeds of {wind_speed} mph. "
-            "Generate a friendly and conversational recommendation for what type of jacket to wear."
+            f"Given {temperature_f}°F weather with {condition} conditions and {wind_speed} mph winds, "
+            "provide a SHORT (max 15 words), complete jacket recommendation. Be direct and friendly."
         )
         
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant providing weather-related clothing advice in a friendly tone."},
+                {"role": "system", "content": "You are a helpful weather assistant. Keep responses under 15 words."},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=50,
+            max_tokens=30,
             temperature=0.7
         )
         recommendation = response.choices[0].message.content.strip()
@@ -575,38 +575,56 @@ def get_hourly_weather():
 
 def send_daily_weather_update(user_id=None):
     """Send weather update to specific user or all users."""
-    current_time = datetime.now(timezone('America/Chicago'))
-    logging.info(f"[SCHEDULER] Update started at {current_time}")
+    logging.info(f"[SCHEDULER] Triggered weather update at {datetime.now()}")
     
     with app.app_context():
         try:
             db = get_db()
             if user_id:
                 users = [db.execute('SELECT * FROM users WHERE id = ?', [user_id]).fetchone()]
+                logging.info(f"[SCHEDULER] Processing single user: {user_id}")
             else:
                 users = db.execute('SELECT * FROM users').fetchall()
+                logging.info(f"[SCHEDULER] Processing all users: {len(users)} found")
             
             for user in users:
                 try:
                     user_dict = dict(user)
                     logging.info(f"[SCHEDULER] Processing user {user_dict['id']}")
                     
+                    # Get weather data
                     weather_data = get_weather(zipcode=user_dict['zipcode'])
-                    message = generate_weather_message(user_dict, weather_data)
+                    logging.info(f"[SCHEDULER] Weather data received for {user_dict['zipcode']}")
                     
-                    # Always send message for test runs (when user_id is provided)
-                    should_send = user_id is not None or (
-                        weather_data['main']['temp'] < user_dict['weather_notification_temp'] or 
-                        weather_data['weather'][0]['main'] == user_dict['weather_notification_condition']
-                    )
+                    # Generate and send message
+                    message = generate_weather_message(user_dict, weather_data)
+                    logging.info(f"[SCHEDULER] Message generated: {message}")
+                    
+                    # Always send message for test runs
+                    if user_id is not None:
+                        should_send = True
+                        logging.info("[SCHEDULER] Test run - forcing message send")
+                    else:
+                        temp_threshold = user_dict.get('weather_notification_temp', 32)
+                        condition_match = user_dict.get('weather_notification_condition', 'Snow')
+                        current_temp = weather_data['main']['temp']
+                        current_condition = weather_data['weather'][0]['main']
+                        
+                        should_send = (current_temp < temp_threshold or 
+                                     current_condition == condition_match)
+                        logging.info(f"[SCHEDULER] Should send? {should_send} (Temp: {current_temp} < {temp_threshold} or Condition: {current_condition} == {condition_match})")
                     
                     if should_send:
                         result = send_text_message(user_dict['phone_number'], message)
                         logging.info(f"[SCHEDULER] Message sent: {result}")
+                    
                 except Exception as e:
-                    logging.error(f"[SCHEDULER] Error processing user {user['id']}: {e}")
+                    logging.error(f"[SCHEDULER] Error processing user {user['id']}: {str(e)}")
+                    continue
+                    
         except Exception as e:
-            logging.error(f"[SCHEDULER] Critical error: {e}")
+            logging.error(f"[SCHEDULER] Critical error: {str(e)}")
+            logging.exception("[SCHEDULER] Full stack trace:")
 
 @app.route('/test-openai')
 def test_openai():
@@ -762,6 +780,23 @@ def schedule_user_jobs():
         logging.error(f"[SCHEDULER] Error in schedule_user_jobs: {e}")
         logging.exception("[SCHEDULER] Full exception details:")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/test-scheduler-now')
+def test_scheduler_now():
+    """Force the scheduler to run immediately."""
+    try:
+        logging.info("[TEST] Running scheduler test immediately")
+        send_daily_weather_update()
+        return jsonify({
+            "status": "success",
+            "message": "Scheduler test completed - check logs for details"
+        })
+    except Exception as e:
+        logging.error(f"[TEST] Scheduler test failed: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
 if __name__ == '__main__':
     if not os.path.exists(DATABASE):
