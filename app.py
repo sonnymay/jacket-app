@@ -13,6 +13,7 @@ from geopy.geocoders import Nominatim
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from pytz import timezone
 import re
+import json
 
 # Load environment variables
 load_dotenv()
@@ -35,17 +36,21 @@ class WeatherAPIException(Exception):
 # Utility functions
 def generate_jacket_recommendation(temperature_f, wind_speed, condition):
     """Generate a simple jacket recommendation."""
-    temperature_f = round(temperature_f)
-    wind_speed = round(wind_speed)
-
-    prompt = (
-        f"The temperature is {temperature_f}°F with {condition}. "
-        f"Wind speed is {wind_speed} mph. Suggest a simple, clear jacket recommendation."
-    )
-
+    logging.info(f"[OPENAI] Generating recommendation for: {temperature_f}°F, {wind_speed}mph, {condition}")
+    
+    if not OPENAI_API_KEY:
+        logging.error("[OPENAI] API key is missing")
+        return get_fallback_recommendation(temperature_f)
+        
     try:
+        logging.info("[OPENAI] Attempting API call")
+        prompt = (
+            f"The temperature is {temperature_f}°F with {condition}. "
+            f"Wind speed is {wind_speed} mph. Suggest a simple, clear jacket recommendation."
+        )
+        
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-3.5-turbo",  # Changed to a more reliable model
             messages=[
                 {"role": "system", "content": "You are a weather assistant providing short and clear jacket advice."},
                 {"role": "user", "content": prompt},
@@ -54,15 +59,20 @@ def generate_jacket_recommendation(temperature_f, wind_speed, condition):
             temperature=0.2
         )
         recommendation = response.choices[0].message.content.strip()
-        logging.debug(f"OpenAI recommendation: {recommendation}")
+        logging.info(f"[OPENAI] Success: {recommendation}")
         return recommendation
     except Exception as e:
-        logging.error(f"OpenAI error: {e}")
-        if temperature_f < 32:
-            return "Wear a thick, warm jacket."
-        elif temperature_f < 50:
-            return "A medium jacket is fine."
-        return "A light jacket will do."
+        logging.error(f"[OPENAI] API error: {str(e)}")
+        logging.exception("[OPENAI] Full exception details:")
+        return get_fallback_recommendation(temperature_f)
+
+def get_fallback_recommendation(temperature_f):
+    """Fallback recommendations when OpenAI is unavailable."""
+    if temperature_f < 32:
+        return "Wear a thick, warm jacket."
+    elif temperature_f < 50:
+        return "A medium jacket is fine."
+    return "A light jacket will do."
 
 def should_wear_jacket(weather_data):
     # Round values before passing to recommendation function
@@ -551,39 +561,47 @@ def send_daily_weather_update():
     current_time = datetime.now(timezone('America/Chicago'))
     logging.info(f"[SCHEDULER] Daily update started at {current_time}")
     logging.info(f"[SCHEDULER] Process ID: {os.getpid()}")
-    logging.info(f"[SCHEDULER] Environment variables:")
-    logging.info(f"[SCHEDULER] TWILIO_ACCOUNT_SID: {'Present' if os.environ.get('TWILIO_ACCOUNT_SID') else 'Missing'}")
-    logging.info(f"[SCHEDULER] TWILIO_AUTH_TOKEN: {'Present' if os.environ.get('TWILIO_AUTH_TOKEN') else 'Missing'}")
-    logging.info(f"[SCHEDULER] TWILIO_PHONE_NUMBER: {os.environ.get('TWILIO_PHONE_NUMBER')}")
+    
+    # Check environment variables
+    env_vars = {
+        "OPENAI_API_KEY": bool(OPENAI_API_KEY),
+        "TWILIO_ACCOUNT_SID": bool(os.environ.get("TWILIO_ACCOUNT_SID")),
+        "TWILIO_AUTH_TOKEN": bool(os.environ.get("TWILIO_AUTH_TOKEN")),
+        "TWILIO_PHONE_NUMBER": bool(os.environ.get("TWILIO_PHONE_NUMBER")),
+        "OPENWEATHERMAP_API_KEY": bool(OPENWEATHERMAP_API_KEY)
+    }
+    logging.info(f"[SCHEDULER] Environment variables status: {json.dumps(env_vars)}")
     
     with app.app_context():
         try:
             db = get_db()
             users = db.execute('SELECT * FROM users').fetchall()
-            logging.info(f"[SCHEDULER] Found {len(users)} users to process")
+            logging.info(f"[SCHEDULER] Found {len(users)} users")
             
             for user in users:
                 try:
                     user_dict = dict(user)
-                    logging.info(f"[SCHEDULER] Processing user: {user_dict}")
+                    logging.info(f"[SCHEDULER] Processing user {user_dict['id']}")
                     
-                    weather_data = get_weather(zipcode=user['zipcode'])
+                    # Get weather and check conditions
+                    weather_data = get_weather(zipcode=user_dict['zipcode'])
                     temperature = round(weather_data['main']['temp'])
                     condition = weather_data['weather'][0]['main']
                     
                     should_send = (
-                        temperature < user['weather_notification_temp'] or 
-                        condition == user['weather_notification_condition']
+                        temperature < user_dict['weather_notification_temp'] or 
+                        condition == user_dict['weather_notification_condition']
                     )
-                    logging.info(f"[SCHEDULER] Conditions met for sending: {should_send}")
                     
                     if should_send:
-                        message = generate_weather_message(user, weather_data)
-                        logging.info(f"[SCHEDULER] Sending message to {user['phone_number']}")
-                        send_text_message(user['phone_number'], message)
+                        message = generate_weather_message(user_dict, weather_data)
+                        logging.info(f"[SCHEDULER] Sending message to {user_dict['phone_number']}")
+                        result = send_text_message(user_dict['phone_number'], message)
+                        logging.info(f"[SCHEDULER] Message send result: {result}")
                 except Exception as e:
-                    logging.error(f"[SCHEDULER] Error processing user {user['id']}: {str(e)}")
+                    logging.error(f"[SCHEDULER] User processing error: {str(e)}")
                     logging.exception("[SCHEDULER] Full exception details:")
+                    continue
         except Exception as e:
             logging.error(f"[SCHEDULER] Critical error: {str(e)}")
             logging.exception("[SCHEDULER] Full exception details:")
@@ -592,19 +610,24 @@ def send_daily_weather_update():
 def test_openai():
     """Test the OpenAI integration."""
     try:
-        temperature_f = 32
-        wind_speed = 10
-        condition = "Snow"
+        logging.info("[TEST] Testing OpenAI integration")
+        logging.info(f"[TEST] Using API key: {OPENAI_API_KEY[:5]}...")
         
-        recommendation = generate_jacket_recommendation(temperature_f, wind_speed, condition)
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": "Hello, OpenAI!"}],
+            max_tokens=10
+        )
+        result = response.choices[0].message.content
+        logging.info(f"[TEST] OpenAI test successful: {result}")
+        
         return jsonify({
-            "temperature_f": temperature_f,
-            "wind_speed": wind_speed,
-            "condition": condition,
-            "recommendation": recommendation
+            "status": "success",
+            "message": result
         })
     except Exception as e:
-        logging.error(f"Error testing OpenAI: {e}")
+        logging.error(f"[TEST] OpenAI test failed: {str(e)}")
+        logging.exception("[TEST] Full exception details:")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/logout')
