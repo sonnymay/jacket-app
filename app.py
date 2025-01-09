@@ -629,6 +629,25 @@ def send_daily_weather_update(user_id=None):
     finally:
         send_daily_weather_update.is_running = False
 
+def get_user_preferred_time():
+    with app.app_context():
+        try:
+            db = get_db()
+            user = db.execute('SELECT preferred_time FROM users LIMIT 1').fetchone()
+            if user and user['preferred_time']:
+                time_str = user['preferred_time']
+                # Convert string to hour/minute
+                if ":" in time_str:
+                    if "AM" in time_str.upper() or "PM" in time_str.upper():
+                        dt = datetime.strptime(time_str, "%I:%M %p")
+                    else:
+                        dt = datetime.strptime(time_str, "%H:%M")
+                    return dt.hour, dt.minute
+            return 7, 30  # Default to 7:30 AM
+        except Exception as e:
+            logging.error(f"Error getting preferred time: {e}")
+            return 7, 30
+
 jobstores = {
     'default': SQLAlchemyJobStore(url='sqlite:///jobs.sqlite')
 }
@@ -648,15 +667,18 @@ if 'scheduler' not in globals():
     scheduler.start()
     logging.info("[INIT] Scheduler started")
 
+    hour, minute = get_user_preferred_time()
+
     try:
         job = scheduler.add_job(
             func=send_daily_weather_update,
-            trigger='interval',
-            minutes=2,
-            id='weather_job',
+            trigger='cron',
+            hour=hour,
+            minute=minute,
+            id='daily_weather_job',
             replace_existing=True
         )
-        logging.info(f"[SCHEDULER] Job scheduled. Next run at: {job.next_run_time}")
+        logging.info(f"[SCHEDULER] Job scheduled for {hour:02d}:{minute:02d} daily. Next run at: {job.next_run_time}")
     except Exception as e:
         logging.error(f"[SCHEDULER] Failed to schedule job: {e}")
 
