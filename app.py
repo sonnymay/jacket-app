@@ -39,41 +39,43 @@ logging.info(f"[INIT] OpenAI API Key present: {bool(OPENAI_API_KEY)}")
 logging.info(f"[INIT] Twilio credentials present: {bool(os.getenv('TWILIO_ACCOUNT_SID'))} / {bool(os.getenv('TWILIO_AUTH_TOKEN'))}")
 logging.info(f"[INIT] Twilio phone number: {os.getenv('TWILIO_PHONE_NUMBER')}")
 
+# Add debug logging for environment variables at startup
+logging.info("[ENV] Checking environment variables:")
+logging.info(f"[ENV] TWILIO_ACCOUNT_SID: {'Present' if os.getenv('TWILIO_ACCOUNT_SID') else 'Missing'}")
+logging.info(f"[ENV] TWILIO_AUTH_TOKEN: {'Present' if os.getenv('TWILIO_AUTH_TOKEN') else 'Missing'}")
+logging.info(f"[ENV] TWILIO_PHONE_NUMBER: {os.getenv('TWILIO_PHONE_NUMBER')}")
+logging.info(f"[ENV] OPENWEATHERMAP_API_KEY: {'Present' if OPENWEATHERMAP_API_KEY else 'Missing'}")
+logging.info(f"[ENV] OPENAI_API_KEY: {'Present' if OPENAI_API_KEY else 'Missing'}")
+
 # Utility functions
 def generate_jacket_recommendation(temperature_f, wind_speed, condition):
-    """Generate a simple jacket recommendation."""
-    logging.info(f"[OPENAI] Starting recommendation for {temperature_f}°F")
+    """Generate a friendly jacket recommendation."""
+    logging.info(f"[OPENAI] Generating recommendation for {temperature_f}°F")
     
     if not OPENAI_API_KEY:
         logging.error("[OPENAI] No API key available")
         return get_fallback_recommendation(temperature_f)
     
     try:
-        logging.info("[OPENAI] Initializing client")
-        client = OpenAI(api_key=OPENAI_API_KEY)
-        
         prompt = (
-            f"The temperature is {temperature_f}°F with {condition}. "
-            f"Wind speed is {wind_speed} mph. Suggest a simple, clear jacket recommendation."
+            f"The weather report shows {temperature_f}°F and {condition} with wind speeds of {wind_speed} mph. "
+            "Generate a friendly and conversational recommendation for what type of jacket to wear."
         )
         
-        logging.info("[OPENAI] Sending request")
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",  # Changed to a more reliable model
+            model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are a weather assistant providing short and clear jacket advice."},
+                {"role": "system", "content": "You are a helpful assistant providing weather-related clothing advice in a friendly tone."},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=40,
-            temperature=0.2
+            max_tokens=50,
+            temperature=0.7
         )
-        
         recommendation = response.choices[0].message.content.strip()
         logging.info(f"[OPENAI] Success: {recommendation}")
         return recommendation
     except Exception as e:
         logging.error(f"[OPENAI] Error: {str(e)}")
-        logging.exception("[OPENAI] Full exception details:")
         return get_fallback_recommendation(temperature_f)
 
 def get_fallback_recommendation(temperature_f):
@@ -426,26 +428,26 @@ def get_weather(zipcode=None, latitude=None, longitude=None, units='imperial'):
 
 def send_text_message(to_number, message_body):
     """Send SMS with enhanced error handling and logging."""
-    logging.info(f"[SMS] Starting send process")
+    logging.info(f"[SMS] Starting send process for {to_number}")
+    logging.info(f"[SMS] Message: {message_body}")
     
-    # Check credentials
     account_sid = os.getenv("TWILIO_ACCOUNT_SID")
     auth_token = os.getenv("TWILIO_AUTH_TOKEN")
     twilio_number = os.getenv("TWILIO_PHONE_NUMBER")
     
     if not all([account_sid, auth_token, twilio_number]):
-        logging.error("[SMS] Missing Twilio credentials")
+        missing = []
+        if not account_sid: missing.append("TWILIO_ACCOUNT_SID")
+        if not auth_token: missing.append("TWILIO_AUTH_TOKEN")
+        if not twilio_number: missing.append("TWILIO_PHONE_NUMBER")
+        logging.error(f"[SMS] Missing credentials: {', '.join(missing)}")
         return False
     
     try:
-        # Format phone number
         formatted_number = format_phone_number(to_number)
-        logging.info(f"[SMS] Sending to: {formatted_number}")
+        logging.info(f"[SMS] Formatted number: {formatted_number}")
         
-        # Initialize client
         client = Client(account_sid, auth_token)
-        
-        # Send message
         message = client.messages.create(
             body=message_body,
             from_=twilio_number,
@@ -571,54 +573,40 @@ def get_hourly_weather():
         logging.error(f"Error in hourly_weather: {e}")
         return jsonify({'error': 'Unable to fetch hourly forecast'}), 500
 
-def send_daily_weather_update():
+def send_daily_weather_update(user_id=None):
+    """Send weather update to specific user or all users."""
     current_time = datetime.now(timezone('America/Chicago'))
-    logging.info(f"[SCHEDULER] Daily update started at {current_time}")
-    logging.info(f"[SCHEDULER] Process ID: {os.getpid()}")
-    
-    # Check environment variables
-    env_vars = {
-        "OPENAI_API_KEY": bool(OPENAI_API_KEY),
-        "TWILIO_ACCOUNT_SID": bool(os.environ.get("TWILIO_ACCOUNT_SID")),
-        "TWILIO_AUTH_TOKEN": bool(os.environ.get("TWILIO_AUTH_TOKEN")),
-        "TWILIO_PHONE_NUMBER": bool(os.environ.get("TWILIO_PHONE_NUMBER")),
-        "OPENWEATHERMAP_API_KEY": bool(OPENWEATHERMAP_API_KEY)
-    }
-    logging.info(f"[SCHEDULER] Environment variables status: {json.dumps(env_vars)}")
+    logging.info(f"[SCHEDULER] Update started at {current_time}")
     
     with app.app_context():
         try:
             db = get_db()
-            users = db.execute('SELECT * FROM users').fetchall()
-            logging.info(f"[SCHEDULER] Found {len(users)} users")
+            if user_id:
+                users = [db.execute('SELECT * FROM users WHERE id = ?', [user_id]).fetchone()]
+            else:
+                users = db.execute('SELECT * FROM users').fetchall()
             
             for user in users:
                 try:
                     user_dict = dict(user)
                     logging.info(f"[SCHEDULER] Processing user {user_dict['id']}")
                     
-                    # Get weather and check conditions
                     weather_data = get_weather(zipcode=user_dict['zipcode'])
-                    temperature = round(weather_data['main']['temp'])
-                    condition = weather_data['weather'][0]['main']
+                    message = generate_weather_message(user_dict, weather_data)
                     
-                    should_send = (
-                        temperature < user_dict['weather_notification_temp'] or 
-                        condition == user_dict['weather_notification_condition']
+                    # Always send message for test runs (when user_id is provided)
+                    should_send = user_id is not None or (
+                        weather_data['main']['temp'] < user_dict['weather_notification_temp'] or 
+                        weather_data['weather'][0]['main'] == user_dict['weather_notification_condition']
                     )
                     
                     if should_send:
-                        message = generate_weather_message(user_dict, weather_data)
-                        logging.info(f"[SCHEDULER] Sending message to {user_dict['phone_number']}")
                         result = send_text_message(user_dict['phone_number'], message)
-                        logging.info(f"[SCHEDULER] Message send result: {result}")
+                        logging.info(f"[SCHEDULER] Message sent: {result}")
                 except Exception as e:
-                    logging.error(f"[SCHEDULER] User processing error: {str(e)}")
-                    logging.exception("[SCHEDULER] Full exception details:")
-                    continue
+                    logging.error(f"[SCHEDULER] Error processing user {user['id']}: {e}")
         except Exception as e:
-            logging.error(f"[SCHEDULER] Critical error: {str(e)}")
-            logging.exception("[SCHEDULER] Full exception details:")
+            logging.error(f"[SCHEDULER] Critical error: {e}")
 
 @app.route('/test-openai')
 def test_openai():
@@ -722,6 +710,59 @@ def test_all():
     
     return jsonify(results)
 
+@app.route('/schedule-user-jobs')
+def schedule_user_jobs():
+    """Schedule individual jobs for each user."""
+    try:
+        with app.app_context():
+            db = get_db()
+            users = db.execute('SELECT * FROM users').fetchall()
+            logging.info(f"[SCHEDULER] Found {len(users)} users to schedule")
+            
+            for user in users:
+                try:
+                    user_dict = dict(user)
+                    logging.info(f"[SCHEDULER] Processing user: {user_dict}")
+                    
+                    preferred_time = user_dict['preferred_time']
+                    if not preferred_time:
+                        logging.error(f"[SCHEDULER] No preferred time for user {user_dict['id']}")
+                        continue
+                        
+                    try:
+                        if ":" in preferred_time:
+                            hour, minute = map(int, preferred_time.split(":"))
+                        else:
+                            logging.error(f"[SCHEDULER] Invalid time format: {preferred_time}")
+                            continue
+                            
+                        job = scheduler.add_job(
+                            func=send_daily_weather_update,
+                            trigger='cron',
+                            hour=hour,
+                            minute=minute,
+                            args=[user_dict['id']],
+                            id=f'weather_update_{user_dict["id"]}',
+                            replace_existing=True
+                        )
+                        logging.info(f"[SCHEDULER] Job scheduled for user {user_dict['id']} at {hour}:{minute}")
+                        logging.info(f"[SCHEDULER] Next run: {job.next_run_time}")
+                    except ValueError as e:
+                        logging.error(f"[SCHEDULER] Time parsing error for user {user_dict['id']}: {e}")
+                except Exception as e:
+                    logging.error(f"[SCHEDULER] Error processing user {user_dict['id']}: {e}")
+                    logging.exception("[SCHEDULER] Full exception details:")
+            
+            # Log all scheduled jobs
+            logging.info("[SCHEDULER] Current jobs:")
+            scheduler.print_jobs()
+            
+            return jsonify({"status": "success", "users_processed": len(users)})
+    except Exception as e:
+        logging.error(f"[SCHEDULER] Error in schedule_user_jobs: {e}")
+        logging.exception("[SCHEDULER] Full exception details:")
+        return jsonify({"error": str(e)}), 500
+
 # Initialize scheduler
 jobstores = {
     'default': SQLAlchemyJobStore(url='sqlite:///jobs.sqlite')
@@ -755,9 +796,20 @@ except Exception as e:
     logging.error(f"[SCHEDULER] Error scheduling job: {str(e)}")
     logging.exception("[SCHEDULER] Full exception details:")
 
-scheduler.start()
-
 if __name__ == '__main__':
     if not os.path.exists(DATABASE):
         init_db()
+    
+    # Initialize scheduler with proper timezone
+    scheduler = BackgroundScheduler(
+        jobstores=jobstores,
+        timezone=timezone('America/Chicago'),
+        logger=logging.getLogger('apscheduler')
+    )
+    
+    # Schedule jobs for existing users
+    with app.app_context():
+        schedule_user_jobs()
+    
+    scheduler.start()
     app.run(debug=True, host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
