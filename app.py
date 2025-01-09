@@ -618,8 +618,17 @@ def send_daily_weather_update():
     finally:
         send_daily_weather_update.is_running = False
 
-# Ensure only one scheduler instance
+jobstores = {
+    'default': SQLAlchemyJobStore(url='sqlite:///jobs.sqlite')
+}
+
 if 'scheduler' not in globals():
+    try:
+        scheduler.remove_all_jobs()
+        scheduler.shutdown()
+    except:
+        pass
+
     scheduler = BackgroundScheduler(
         jobstores=jobstores,
         timezone=pytz.timezone('America/Chicago'),
@@ -627,8 +636,6 @@ if 'scheduler' not in globals():
     )
     scheduler.start()
     logging.info("[INIT] Scheduler started")
-
-    scheduler.remove_all_jobs()
 
     try:
         job = scheduler.add_job(
