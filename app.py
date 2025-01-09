@@ -583,6 +583,38 @@ scheduler = BackgroundScheduler(
 scheduler.start()
 logging.info(f"[SCHEDULER] Started scheduler with timezone {scheduler.timezone}")
 
+@app.route('/scheduler-debug')
+def scheduler_debug():
+    """Debug endpoint to check scheduler status."""
+    try:
+        jobs = scheduler.get_jobs()
+        now = datetime.now(pytz.timezone('America/Chicago'))
+        return jsonify({
+            'scheduler_running': scheduler.running,
+            'current_time': str(now),
+            'jobs': [{
+                'id': job.id,
+                'next_run_time': str(job.next_run_time),
+                'trigger': str(job.trigger),
+                'pending': job.pending
+            } for job in jobs],
+            'timezone': str(scheduler.timezone)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+try:
+    job = scheduler.add_job(
+        func=send_daily_weather_update,
+        trigger='interval',
+        minutes=2, 
+        id='weather_job',
+        replace_existing=True
+    )
+    logging.info(f"[SCHEDULER] Job scheduled. Next run at: {job.next_run_time}")
+except Exception as e:
+    logging.error(f"[SCHEDULER] Failed to schedule job: {e}")
+
 def send_daily_weather_update(user_id=None):
     """Send weather update with enhanced logging."""
     current_time = datetime.now(pytz.timezone('America/Chicago'))
