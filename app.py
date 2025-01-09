@@ -743,6 +743,68 @@ def scheduler_debug():
 @app.route('/test-message-now')
 def test_message_now():
     """Test endpoint to send message immediately."""
+    try:
+        with app.app_context():
+            db = get_db()
+            users = db.execute('SELECT * FROM users').fetchall()
+            
+            if not users:
+                return jsonify({"status": "error", "message": "No users found"})
+            
+            results = []
+            for user in users:
+                try:
+                    user_dict = dict(user)
+                    logging.info(f"[TEST] Sending message to user: {user_dict['phone_number']}")
+                    
+                    weather_data = get_weather(zipcode=user_dict['zipcode'])
+                    message = generate_weather_message(user_dict, weather_data)
+                    
+                    result = send_text_message(user_dict['phone_number'], message)
+                    results.append({
+                        "phone": user_dict['phone_number'],
+                        "success": result,
+                        "message": message
+                    })
+                    
+                except Exception as e:
+                    logging.error(f"[TEST] Error processing user: {str(e)}")
+                    results.append({
+                        "phone": user_dict.get('phone_number', 'unknown'),
+                        "success": False,
+                        "error": str(e)
+                    })
+            
+            return jsonify({
+                "status": "complete",
+                "results": results
+            })
+            
+    except Exception as e:
+        logging.error(f"[TEST] Error: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/scheduler-status')
+def scheduler_status():
+    """Check scheduler status."""
+    try:
+        jobs = scheduler.get_jobs()
+        return jsonify({
+            'scheduler_running': scheduler.running,
+            'current_time': str(datetime.now(pytz.timezone('America/Chicago'))),
+            'jobs': [{
+                'id': job.id,
+                'next_run_time': str(job.next_run_time),
+                'trigger': str(job.trigger)
+            } for job in jobs],
+            'timezone': str(scheduler.timezone)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/test-message-now')
+def test_message_now():
+    """Test endpoint to send message immediately."""
     logging.info("[TEST] Testing immediate message send")
     try:
         if 'user_id' not in session:
