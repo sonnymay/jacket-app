@@ -14,6 +14,7 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from pytz import timezone
 import re
 import json
+import pytz
 
 # Load environment variables
 load_dotenv()
@@ -573,9 +574,19 @@ def get_hourly_weather():
         logging.error(f"Error in hourly_weather: {e}")
         return jsonify({'error': 'Unable to fetch hourly forecast'}), 500
 
+scheduler = BackgroundScheduler(
+    timezone=pytz.timezone('America/Chicago'),
+    daemon=True
+)
+
+# Start scheduler immediately
+scheduler.start()
+logging.info(f"[SCHEDULER] Started scheduler with timezone {scheduler.timezone}")
+
 def send_daily_weather_update(user_id=None):
-    """Send weather update to specific user or all users."""
-    logging.info(f"[SCHEDULER] Triggered weather update at {datetime.now()}")
+    """Send weather update with enhanced logging."""
+    current_time = datetime.now(pytz.timezone('America/Chicago'))
+    logging.info(f"[SCHEDULER] Weather update triggered at {current_time}")
     
     with app.app_context():
         try:
@@ -585,46 +596,75 @@ def send_daily_weather_update(user_id=None):
                 logging.info(f"[SCHEDULER] Processing single user: {user_id}")
             else:
                 users = db.execute('SELECT * FROM users').fetchall()
-                logging.info(f"[SCHEDULER] Processing all users: {len(users)} found")
+                logging.info(f"[SCHEDULER] Processing {len(users)} users")
             
             for user in users:
                 try:
                     user_dict = dict(user)
                     logging.info(f"[SCHEDULER] Processing user {user_dict['id']}")
                     
-                    # Get weather data
                     weather_data = get_weather(zipcode=user_dict['zipcode'])
-                    logging.info(f"[SCHEDULER] Weather data received for {user_dict['zipcode']}")
-                    
-                    # Generate and send message
                     message = generate_weather_message(user_dict, weather_data)
-                    logging.info(f"[SCHEDULER] Message generated: {message}")
+                    logging.info(f"[SCHEDULER] Generated message: {message}")
                     
-                    # Always send message for test runs
-                    if user_id is not None:
-                        should_send = True
-                        logging.info("[SCHEDULER] Test run - forcing message send")
-                    else:
-                        temp_threshold = user_dict.get('weather_notification_temp', 32)
-                        condition_match = user_dict.get('weather_notification_condition', 'Snow')
-                        current_temp = weather_data['main']['temp']
-                        current_condition = weather_data['weather'][0]['main']
-                        
-                        should_send = (current_temp < temp_threshold or 
-                                     current_condition == condition_match)
-                        logging.info(f"[SCHEDULER] Should send? {should_send} (Temp: {current_temp} < {temp_threshold} or Condition: {current_condition} == {condition_match})")
-                    
-                    if should_send:
-                        result = send_text_message(user_dict['phone_number'], message)
-                        logging.info(f"[SCHEDULER] Message sent: {result}")
+                    result = send_text_message(user_dict['phone_number'], message)
+                    logging.info(f"[SCHEDULER] Message sent result: {result}")
                     
                 except Exception as e:
-                    logging.error(f"[SCHEDULER] Error processing user {user['id']}: {str(e)}")
+                    logging.error(f"[SCHEDULER] Error processing user {user['id']}: {e}")
+                    logging.exception("[SCHEDULER] User processing error details:")
                     continue
                     
         except Exception as e:
-            logging.error(f"[SCHEDULER] Critical error: {str(e)}")
+            logging.error(f"[SCHEDULER] Critical error: {e}")
             logging.exception("[SCHEDULER] Full stack trace:")
+
+@app.route('/test-message-now')
+def test_message_now():
+    """Test endpoint to send message immediately."""
+    logging.info("[TEST] Testing immediate message send")
+    try:
+        if 'user_id' not in session:
+            # Get first user from database
+            user = get_db().execute('SELECT id FROM users LIMIT 1').fetchone()
+            if user:
+                user_id = user['id']
+            else:
+                return "No users found in database", 404
+        else:
+            user_id = session['user_id']
+            
+        logging.info(f"[TEST] Triggering message for user {user_id}")
+        send_daily_weather_update(user_id)
+        return "Test message triggered - check logs"
+    except Exception as e:
+        logging.error(f"Test message error: {e}")
+        logging.exception("[TEST] Full error details:")
+        return f"Error: {str(e)}", 500
+
+@app.route('/scheduler-status')
+def scheduler_status():
+    """Check scheduler status and jobs."""
+    try:
+        jobs = scheduler.get_jobs()
+        status = {
+            'scheduler_running': scheduler.running,
+            'scheduler_timezone': str(scheduler.timezone),
+            'current_time': datetime.now(scheduler.timezone).strftime('%Y-%m-%d %H:%M:%S %Z'),
+            'job_count': len(jobs),
+            'jobs': [{
+                'id': job.id,
+                'next_run_time': str(job.next_run_time),
+                'trigger': str(job.trigger),
+                'pending': job.pending
+            } for job in jobs]
+        }
+        logging.info(f"[STATUS] Scheduler status: {status}")
+        return jsonify(status)
+    except Exception as e:
+        logging.error(f"[STATUS] Error checking scheduler: {e}")
+        logging.exception("[STATUS] Full error details:")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/test-openai')
 def test_openai():
