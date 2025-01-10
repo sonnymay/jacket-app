@@ -668,51 +668,46 @@ def send_daily_weather_update(user_id=None):
         send_daily_weather_update.is_running = False
 
 def get_user_preferred_time():
-    """Get preferred time from the first user in the database"""
-    try:
-        with app.app_context():
+    with app.app_context():
+        try:
             db = get_db()
             user = db.execute('SELECT preferred_time FROM users LIMIT 1').fetchone()
             if user and user['preferred_time']:
                 time_str = user['preferred_time']
-                # Parse time string
+                # Convert string to hour/minute
                 if ":" in time_str:
                     if "AM" in time_str.upper() or "PM" in time_str.upper():
                         dt = datetime.strptime(time_str, "%I:%M %p")
                     else:
                         dt = datetime.strptime(time_str, "%H:%M")
                     return dt.hour, dt.minute
-            logging.info(f"[TIME] Using default time (7:30 AM)")
+            return 7, 30  # Default to 7:30 AM
+        except Exception as e:
+            logging.error(f"Error getting preferred time: {e}")
             return 7, 30
-    except Exception as e:
-        logging.error(f"[TIME] Error getting preferred time: {e}")
-        return 7, 30
 
-def init_scheduler():
-    """Initialize the scheduler with proper configuration"""
+jobstores = {
+    'default': SQLAlchemyJobStore(url='sqlite:///jobs.sqlite')
+}
+
+if 'scheduler' not in globals():
     try:
-        jobstores = {
-            'default': SQLAlchemyJobStore(url='sqlite:///jobs.sqlite')
-        }
+        scheduler.remove_all_jobs()
+        scheduler.shutdown()
+    except:
+        pass
 
-        scheduler = BackgroundScheduler(
-            jobstores=jobstores,
-            timezone=pytz.timezone('America/Chicago'),
-            daemon=True
-        )
+    scheduler = BackgroundScheduler(
+        jobstores=jobstores,
+        timezone=pytz.timezone('America/Chicago'),
+        daemon=True
+    )
+    scheduler.start()
+    logging.info("[INIT] Scheduler started")
 
-        if scheduler.running:
-            scheduler.shutdown()
-            logging.info("[SCHEDULER] Shut down existing scheduler")
+    hour, minute = get_user_preferred_time()
 
-        scheduler.start()
-        logging.info("[SCHEDULER] Started new scheduler instance")
-
-        # Get preferred time
-        hour, minute = get_user_preferred_time()
-        logging.info(f"[SCHEDULER] Setting job for {hour:02d}:{minute:02d}")
-
-        # Schedule job
+    try:
         job = scheduler.add_job(
             func=send_daily_weather_update,
             trigger='cron',
@@ -721,49 +716,73 @@ def init_scheduler():
             id='daily_weather_job',
             replace_existing=True
         )
-
-        next_run = job.next_run_time
-        logging.info(f"[SCHEDULER] Job scheduled. Next run at: {next_run}")
-        
-        return scheduler
+        logging.info(f"[SCHEDULER] Job scheduled for {hour:02d}:{minute:02d} daily. Next run at: {job.next_run_time}")
     except Exception as e:
-        logging.error(f"[SCHEDULER] Initialization error: {e}")
-        raise
-
-# Initialize scheduler at app startup
-try:
-    scheduler = init_scheduler()
-except Exception as e:
-    logging.error(f"[SCHEDULER] Failed to initialize scheduler: {e}")
+        logging.error(f"[SCHEDULER] Failed to schedule job: {e}")
 
 @app.route('/scheduler-debug')
 def scheduler_debug():
-    """Detailed scheduler debug information"""
+    """Debug endpoint to check scheduler status."""
     try:
-        current_time = datetime.now(pytz.timezone('America/Chicago'))
         jobs = scheduler.get_jobs()
-        
-        # Test database connection
-        with app.app_context():
-            db = get_db()
-            users = db.execute('SELECT id, preferred_time FROM users').fetchall()
-            user_times = [dict(user) for user in users]
-
+        now = datetime.now(pytz.timezone('America/Chicago'))
         return jsonify({
-            'current_time': str(current_time),
             'scheduler_running': scheduler.running,
-            'scheduler_state': scheduler.state,
+            'current_time': str(now),
             'jobs': [{
                 'id': job.id,
                 'next_run_time': str(job.next_run_time),
                 'trigger': str(job.trigger),
                 'pending': job.pending
             } for job in jobs],
-            'timezone': str(scheduler.timezone),
-            'users': user_times
+            'timezone': str(scheduler.timezone)
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/test-message-now')
+def test_message_now():
+    """Test endpoint to send message immediately."""
+    try:
+        with app.app_context():
+            db = get_db()
+            users = db.execute('SELECT * FROM users').fetchall()
+            
+            if not users:
+                return jsonify({"status": "error", "message": "No users found"})
+            
+            results = []
+            for user in users:
+                try:
+                    user_dict = dict(user)
+                    logging.info(f"[TEST] Sending message to user: {user_dict['phone_number']}")
+                    
+                    weather_data = get_weather(zipcode=user_dict['zipcode'])
+                    message = generate_weather_message(user_dict, weather_data)
+                    
+                    result = send_text_message(user_dict['phone_number'], message)
+                    results.append({
+                        "phone": user_dict['phone_number'],
+                        "success": result,
+                        "message": message
+                    })
+                    
+                except Exception as e:
+                    logging.error(f"[TEST] Error processing user: {str(e)}")
+                    results.append({
+                        "phone": user_dict.get('phone_number', 'unknown'),
+                        "success": False,
+                        "error": str(e)
+                    })
+            
+            return jsonify({
+                "status": "complete",
+                "results": results
+            })
+            
+    except Exception as e:
+        logging.error(f"[TEST] Error: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)})
 
 @app.route('/scheduler-status')
 def scheduler_status():
@@ -782,6 +801,38 @@ def scheduler_status():
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+# Initialize scheduler at app startup
+jobstores = {
+    'default': SQLAlchemyJobStore(url='sqlite:///jobs.sqlite')
+}
+
+scheduler = BackgroundScheduler(
+    jobstores=jobstores,
+    timezone=pytz.timezone('America/Chicago'),
+    daemon=True
+)
+
+if not scheduler.running:
+    scheduler.start()
+    logging.info("[INIT] Scheduler started")
+
+    try:
+        # Remove any existing jobs first
+        scheduler.remove_all_jobs()
+        
+        # Add new job
+        job = scheduler.add_job(
+            func=send_daily_weather_update,
+            trigger='cron',
+            hour=7,
+            minute=30,
+            id='daily_weather_job',
+            replace_existing=True
+        )
+        logging.info(f"[SCHEDULER] Job scheduled. Next run at: {job.next_run_time}")
+    except Exception as e:
+        logging.error(f"[SCHEDULER] Failed to schedule job: {e}")
 
 @app.route('/test-openai')
 def test_openai():
@@ -969,5 +1020,34 @@ if __name__ == '__main__':
                 logging.info("[INIT] Tables missing, initializing database")
                 init_db()
 
+        jobstores = {
+            'default': SQLAlchemyJobStore(url='sqlite:///jobs.sqlite')
+        }
+        scheduler = BackgroundScheduler(
+            jobstores=jobstores,
+            timezone=pytz.timezone('America/Chicago'),
+            daemon=True
+        )
+        try:
+            scheduler.remove_all_jobs()
+        except:
+            pass
+
+        scheduler.start()
+        logging.info("[INIT] Scheduler started")
+
+        try:
+            hour, minute = 7, 30
+            job = scheduler.add_job(
+                func=send_daily_weather_update,
+                trigger='cron',
+                hour=hour,
+                minute=minute,
+                id='daily_weather_job',
+                replace_existing=True
+            )
+            logging.info(f"[SCHEDULER] Job scheduled for {hour:02d}:{minute:02d} daily. Next run at: {job.next_run_time}")
+        except Exception as e:
+            logging.error(f"[SCHEDULER] Failed to schedule job: {e}")
+
     app.run(debug=True, host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
-``` 
