@@ -349,83 +349,55 @@ def profile():
 
     if request.method == 'POST':
         try:
-            # Log all received data
             form_data = request.form.to_dict()
             logging.info(f"Received profile update data: {form_data}")
             
-            # Format and validate phone number
             phone = format_phone_number(form_data.get('phone', ''))
-            
-            # Format time
             preferred_time = form_data.get('preferred_time', '07:30 AM')
             formatted_time = datetime.strptime(preferred_time, "%I:%M %p").strftime("%H:%M")
-            logging.info(f"Formatted time: {formatted_time}")
             
-            # Prepare update parameters
-            params = [
-                form_data.get('weather_notification_temp'),
-                form_data.get('weather_notification_condition'),
-                form_data.get('zipcode'),
-                phone,
-                formatted_time,
-                form_data.get('latitude'),
-                form_data.get('longitude'),
-                session['user_id']
-            ]
-            
-            # Execute update
+            # Update user
             db = get_db()
             db.execute('''
                 UPDATE users 
-                SET weather_notification_temp = ?,
-                    weather_notification_condition = ?,
-                    zipcode = ?,
+                SET zipcode = ?,
                     phone_number = ?,
-                    preferred_time = ?,
-                    latitude = ?,
-                    longitude = ?
+                    preferred_time = ?
                 WHERE id = ?
-            ''', params)
+            ''', [
+                form_data.get('zipcode'),
+                phone,
+                formatted_time,
+                session['user_id']
+            ])
             db.commit()
             
-            # Verify update
-            updated = db.execute('SELECT * FROM users WHERE id = ?', 
-                               [session['user_id']]).fetchone()
-            logging.info(f"Updated user data: {dict(updated)}")
-            
-            # After successful update, reschedule the job
-            dt = datetime.strptime(preferred_time, "%I:%M %p")
-            hour, minute = dt.hour, dt.minute
-            
+            # Update scheduler with new time
             try:
+                dt = datetime.strptime(preferred_time, "%I:%M %p")
+                hour, minute = dt.hour, dt.minute
+                
                 global scheduler
                 if scheduler is None or not scheduler.running:
                     scheduler = init_scheduler()
+                else:
+                    job = scheduler.add_job(
+                        func=send_daily_weather_update,
+                        trigger='cron',
+                        hour=hour,
+                        minute=minute,
+                        id='daily_weather_job',
+                        replace_existing=True
+                    )
+                    logging.info(f"[SCHEDULER] Job rescheduled for {hour:02d}:{minute:02d}")
                 
-                scheduler.remove_job('daily_weather_job')
-                job = scheduler.add_job(
-                    func=send_daily_weather_update,
-                    trigger='cron',
-                    hour=hour,
-                    minute=minute,
-                    id='daily_weather_job',
-                    replace_existing=True
-                )
-                logging.info(f"[SCHEDULER] Job rescheduled for {hour:02d}:{minute:02d}")
-                
-                return jsonify({
-                    'message': 'Profile updated successfully',
-                    'scheduler': {
-                        'time': f"{hour:02d}:{minute:02d}",
-                        'next_run': str(job.next_run_time)
-                    }
-                })
             except Exception as e:
                 logging.error(f"[SCHEDULER] Error updating schedule: {e}")
-                return jsonify({'message': 'Profile updated but scheduler update failed'}), 500
-                
+            
+            return jsonify({'message': 'Profile updated successfully'})
+            
         except Exception as e:
-            logging.error(f"Profile update error: {str(e)}")
+            logging.error(f"Profile update error: {e}")
             return jsonify({'error': str(e)}), 500
 
     # Handle GET request
@@ -433,7 +405,6 @@ def profile():
         user = get_db().execute('SELECT * FROM users WHERE id = ?', 
                               [session['user_id']]).fetchone()
         user_dict = dict(user)
-        logging.info(f"Retrieved user data: {user_dict}")
         
         # Format time for display
         stored_time = user_dict.get("preferred_time", "07:30")
@@ -453,17 +424,36 @@ def profile():
             "zipcode": user_dict["zipcode"],
             "phone": user_dict["phone_number"],
             "preferred_time": formatted_time,
-            "latitude": user_dict["latitude"],
-            "longitude": user_dict["longitude"],
-            "weather_notification_temp": user_dict.get("weather_notification_temp", 30),
-            "weather_notification_condition": user_dict.get("weather_notification_condition", "Snow"),
-            "temperature_sensitivity": user_dict.get("temperature_sensitivity", "Normal")
         }
-        logging.info(f"Sending form data to template: {form_data}")
         return render_template('profile.html', form_data=form_data)
     except Exception as e:
-        logging.error(f"Error loading profile: {str(e)}")
+        logging.error(f"Error loading profile: {e}")
         return redirect(url_for('login'))
+
+@app.route('/next-run')
+def next_run():
+    """Check when the next message will be sent."""
+    try:
+        jobs = scheduler.get_jobs()
+        weather_job = next((job for job in jobs if job.id == 'daily_weather_job'), None)
+        
+        if weather_job:
+            next_run = weather_job.next_run_time
+            current_time = datetime.now(pytz.timezone('America/Chicago'))
+            
+            return jsonify({
+                'status': 'scheduled',
+                'current_time': str(current_time),
+                'next_run': str(next_run),
+                'scheduler_running': scheduler.running
+            })
+        else:
+            return jsonify({
+                'status': 'no_job',
+                'scheduler_running': scheduler.running if scheduler else False
+            })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 def get_weather(zipcode=None, latitude=None, longitude=None, units='imperial'):
     """Get weather data with fallback to default location."""
@@ -733,6 +723,29 @@ def init_scheduler():
     
     scheduler.start()
     logging.info("[SCHEDULER] Scheduler initialized")
+
+    # Schedule job immediately after initialization
+    try:
+        with app.app_context():
+            db = get_db()
+            user = db.execute('SELECT preferred_time FROM users LIMIT 1').fetchone()
+            if user and user['preferred_time']:
+                time_str = user['preferred_time']
+                if ":" in time_str:
+                    hour, minute = map(int, time_str.split(":"))
+                    job = scheduler.add_job(
+                        func=send_daily_weather_update,
+                        trigger='cron',
+                        hour=hour,
+                        minute=minute,
+                        id='daily_weather_job',
+                        replace_existing=True
+                    )
+                    logging.info(f"[SCHEDULER] Job scheduled for {hour:02d}:{minute:02d}")
+                    logging.info(f"[SCHEDULER] Next run at: {job.next_run_time}")
+    except Exception as e:
+        logging.error(f"[SCHEDULER] Error scheduling job: {e}")
+
     return scheduler
 
 @app.route('/scheduler-debug')
