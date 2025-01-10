@@ -628,60 +628,36 @@ def get_hourly_weather():
         logging.error(f"Error in hourly_weather: {e}")
         return jsonify({'error': 'Unable to fetch hourly forecast'}), 500
 
-def send_daily_weather_update(user_id=None):
-    current_time = datetime.now(pytz.timezone('America/Chicago'))
-    logging.info(f"[SCHEDULER] Weather update triggered at {current_time}")
-    
-    if hasattr(send_daily_weather_update, 'is_running') and send_daily_weather_update.is_running:
-        logging.info("[SCHEDULER] Already processing, skipping this run")
-        return
-        
-    send_daily_weather_update.is_running = True
+def send_daily_weather_update(user_id):
+    """Send weather update to a specific user."""
+    logging.info(f"[SCHEDULER] Starting weather update for user {user_id}")
     
     try:
         with app.app_context():
             db = get_db()
-            users = []
+            user = db.execute('SELECT * FROM users WHERE id = ?', [user_id]).fetchone()
             
-            try:
-                if user_id is not None:
-                    user = db.execute('SELECT * FROM users WHERE id = ?', [user_id]).fetchone()
-                    if user:
-                        users = [user]
-                    logging.info(f"[SCHEDULER] Processing single user: {user_id}")
-                else:
-                    users = db.execute('SELECT * FROM users').fetchall()
-                    logging.info(f"[SCHEDULER] Processing all users: {len(users) if users else 0}")
-            except Exception as e:
-                logging.error(f"[SCHEDULER] Database error: {str(e)}")
-                return
-            
-            if not users:
-                logging.info("[SCHEDULER] No users found in database")
+            if user is None:
+                logging.error(f"[SCHEDULER] User {user_id} not found")
                 return
                 
-            for user in users:
-                try:
-                    if user is None:
-                        continue
-                    user_dict = dict(user)
-                    logging.info(f"[SCHEDULER] Processing user: {user_dict['id']}")
-                    
-                    weather_data = get_weather(zipcode=user_dict['zipcode'])
-                    message = generate_weather_message(user_dict, weather_data)
-                    
-                    logging.info(f"[SCHEDULER] Sending message to {user_dict['phone_number']}")
-                    result = send_text_message(user_dict['phone_number'], message)
-                    logging.info(f"[SCHEDULER] Message sent result: {result}")
-                    
-                except Exception as e:
-                    logging.error(f"[SCHEDULER] Error processing user: {str(e)}")
-                    continue
+            user_dict = dict(user)
+            logging.info(f"[SCHEDULER] Processing user: {user_dict['phone_number']}")
+            
+            try:
+                weather_data = get_weather(zipcode=user_dict['zipcode'])
+                message = generate_weather_message(user_dict, weather_data)
+                
+                result = send_text_message(user_dict['phone_number'], message)
+                logging.info(f"[SCHEDULER] Message sent to {user_dict['phone_number']}: {result}")
+                
+            except Exception as e:
+                logging.error(f"[SCHEDULER] Error sending message: {e}")
+                logging.exception("[SCHEDULER] Full stack trace:")
+                
     except Exception as e:
-        logging.error(f"[SCHEDULER] Critical error: {str(e)}")
+        logging.error(f"[SCHEDULER] Database error: {e}")
         logging.exception("[SCHEDULER] Full stack trace:")
-    finally:
-        send_daily_weather_update.is_running = False
 
 def get_user_preferred_time():
     with app.app_context():
@@ -708,43 +684,44 @@ scheduler = None
 def init_scheduler():
     global scheduler
     
-    jobstores = {
-        'default': SQLAlchemyJobStore(url='sqlite:///jobs.sqlite')
-    }
-    
-    if scheduler is not None:
+    if scheduler is not None and scheduler.running:
         scheduler.shutdown()
     
     scheduler = BackgroundScheduler(
-        jobstores=jobstores,
         timezone=pytz.timezone('America/Chicago'),
         daemon=True
     )
     
     scheduler.start()
-    logging.info("[SCHEDULER] Scheduler initialized")
+    logging.info("[SCHEDULER] Scheduler initialized and started")
 
-    # Schedule job immediately after initialization
+    # Schedule the daily job
     try:
         with app.app_context():
             db = get_db()
-            user = db.execute('SELECT preferred_time FROM users LIMIT 1').fetchone()
-            if user and user['preferred_time']:
+            users = db.execute('SELECT * FROM users').fetchall()
+            
+            for user in users:
                 time_str = user['preferred_time']
                 if ":" in time_str:
                     hour, minute = map(int, time_str.split(":"))
+                    
                     job = scheduler.add_job(
                         func=send_daily_weather_update,
+                        args=[user['id']],  # Pass user_id to the function
                         trigger='cron',
                         hour=hour,
                         minute=minute,
-                        id='daily_weather_job',
-                        replace_existing=True
+                        id=f'weather_job_{user["id"]}',
+                        replace_existing=True,
+                        misfire_grace_time=None
                     )
-                    logging.info(f"[SCHEDULER] Job scheduled for {hour:02d}:{minute:02d}")
+                    logging.info(f"[SCHEDULER] Job scheduled for user {user['id']} at {hour:02d}:{minute:02d}")
                     logging.info(f"[SCHEDULER] Next run at: {job.next_run_time}")
+    
     except Exception as e:
-        logging.error(f"[SCHEDULER] Error scheduling job: {e}")
+        logging.error(f"[SCHEDULER] Error scheduling jobs: {e}")
+        logging.exception("[SCHEDULER] Full stack trace:")
 
     return scheduler
 
@@ -1002,6 +979,33 @@ def test_scheduler_now():
             "message": str(e)
         }), 500
 
+@app.route('/schedule-test')
+def schedule_test():
+    """Schedule a test job for 2 minutes from now."""
+    try:
+        if 'user_id' not in session:
+            return jsonify({"error": "Not logged in"}), 401
+            
+        test_time = datetime.now(pytz.timezone('America/Chicago')) + timedelta(minutes=2)
+        
+        job = scheduler.add_job(
+            func=send_daily_weather_update,
+            args=[session['user_id']],
+            trigger='date',
+            run_date=test_time,
+            id=f'test_job_{session["user_id"]}',
+            replace_existing=True
+        )
+        
+        return jsonify({
+            "status": "scheduled",
+            "run_time": str(test_time),
+            "next_run": str(job.next_run_time)
+        })
+    except Exception as e:
+        logging.error(f"[TEST] Scheduler test error: {e}")
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == '__main__':
     with app.app_context():
         if not os.path.exists(DATABASE):
@@ -1034,3 +1038,4 @@ if __name__ == '__main__':
             logging.error(f"[SCHEDULER] Initial job scheduling failed: {e}")
 
     app.run(debug=True, host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
+``` 
