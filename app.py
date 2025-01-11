@@ -696,46 +696,53 @@ scheduler = None
 def init_scheduler():
     global scheduler
     
+    # First shut down any existing scheduler
     if scheduler is not None and scheduler.running:
         scheduler.shutdown()
     
     scheduler = BackgroundScheduler(
         timezone=pytz.timezone('America/Chicago'),
-        daemon=True
+        daemon=True,
+        job_defaults={
+            'coalesce': True,
+            'max_instances': 1,
+            'misfire_grace_time': None
+        }
     )
     
     scheduler.start()
-    logging.info("[SCHEDULER] Scheduler initialized and started")
+    logging.info("[SCHEDULER] New scheduler started")
 
-    # Schedule the daily job
+    # Schedule jobs for all users
     try:
         with app.app_context():
             db = get_db()
             users = db.execute('SELECT * FROM users').fetchall()
             
             for user in users:
-                time_str = user['preferred_time']
-                if ":" in time_str:
-                    hour, minute = map(int, time_str.split(":"))
-                    
+                user_dict = dict(user)
+                time_str = user_dict['preferred_time']
+                
+                if ':' in time_str:
+                    hour, minute = map(int, time_str.split(':'))
                     job = scheduler.add_job(
                         func=send_daily_weather_update,
-                        args=[user['id']],  # Pass user_id to the function
+                        args=[user_dict['id']],
                         trigger='cron',
                         hour=hour,
                         minute=minute,
-                        id=f'weather_job_{user["id"]}',
-                        replace_existing=True,
-                        misfire_grace_time=None
+                        id=f'daily_job_{user_dict["id"]}',
+                        name=f'Daily update for user {user_dict["id"]}',
+                        replace_existing=True
                     )
-                    logging.info(f"[SCHEDULER] Job scheduled for user {user['id']} at {hour:02d}:{minute:02d}")
-                    logging.info(f"[SCHEDULER] Next run at: {job.next_run_time}")
-    
+                    logging.info(f"[SCHEDULER] Scheduled job for user {user_dict['id']} at {hour:02d}:{minute:02d}")
     except Exception as e:
         logging.error(f"[SCHEDULER] Error scheduling jobs: {e}")
-        logging.exception("[SCHEDULER] Full stack trace:")
-
+        
     return scheduler
+
+# Initialize scheduler when app starts
+scheduler = init_scheduler()
 
 @app.route('/scheduler-debug')
 def scheduler_debug():
@@ -1122,6 +1129,26 @@ def test_send_now():
     except Exception as e:
         logging.error(f"[TEST] Critical error: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/force-schedule')
+def force_schedule():
+    """Force scheduler to reinitialize and show all scheduled jobs."""
+    global scheduler
+    
+    try:
+        scheduler = init_scheduler()
+        jobs = scheduler.get_jobs()
+        
+        return jsonify({
+            'scheduler_running': scheduler.running,
+            'jobs': [{
+                'id': job.id,
+                'name': job.name,
+                'next_run': str(job.next_run_time)
+            } for job in jobs]
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     with app.app_context():
