@@ -693,42 +693,55 @@ scheduler = None
 def init_scheduler():
     global scheduler
     
-    # First shut down any existing scheduler
     if scheduler is not None and scheduler.running:
         scheduler.shutdown()
     
     scheduler = BackgroundScheduler(
         timezone=pytz.timezone('America/Chicago'),
-        daemon=True,
-        job_defaults={
-            'coalesce': True,
-            'max_instances': 1,
-            'misfire_grace_time': None
-        }
+        daemon=True
     )
     
     scheduler.start()
     logging.info("[SCHEDULER] New scheduler started")
 
-    # Schedule the daily job
+    # Schedule jobs for each user based on their preferred time
     try:
-        job = scheduler.add_job(
-            func=send_daily_weather_update,
-            trigger='cron',
-            hour=7,  # Default to 7:30 AM
-            minute=30,
-            id='daily_weather_job',
-            name='Daily Weather Update',
-            replace_existing=True
-        )
-        logging.info(f"[SCHEDULER] Job scheduled. Next run at: {job.next_run_time}")
+        with app.app_context():
+            db = get_db()
+            users = db.execute('SELECT * FROM users').fetchall()
+            
+            for user in users:
+                user_dict = dict(user)
+                time_str = user_dict['preferred_time']
+                
+                # Parse the time
+                try:
+                    if ":" in time_str:
+                        if "AM" in time_str.upper() or "PM" in time_str.upper():
+                            dt = datetime.strptime(time_str, "%I:%M %p")
+                        else:
+                            dt = datetime.strptime(time_str, "%H:%M")
+                            
+                        hour, minute = dt.hour, dt.minute
+                        
+                        # Schedule job for this user
+                        job = scheduler.add_job(
+                            func=send_daily_weather_update,
+                            args=[user_dict['id']],
+                            trigger='cron',
+                            hour=hour,
+                            minute=minute,
+                            id=f'weather_job_{user_dict["id"]}',
+                            replace_existing=True
+                        )
+                        logging.info(f"[SCHEDULER] Scheduled job for user {user_dict['id']} at {hour:02d}:{minute:02d}")
+                except Exception as e:
+                    logging.error(f"[SCHEDULER] Error scheduling for user {user_dict['id']}: {e}")
+                    
     except Exception as e:
-        logging.error(f"[SCHEDULER] Error scheduling job: {e}")
+        logging.error(f"[SCHEDULER] Error scheduling jobs: {e}")
 
     return scheduler
-
-# Initialize scheduler when app starts
-scheduler = init_scheduler()
 
 @app.route('/scheduler-debug')
 def scheduler_debug():
