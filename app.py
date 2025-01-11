@@ -630,46 +630,43 @@ def get_hourly_weather():
         logging.error(f"Error in hourly_weather: {e}")
         return jsonify({'error': 'Unable to fetch hourly forecast'}), 500
 
-def send_daily_weather_update(user_id):
-    """Send weather update to a specific user."""
-    logging.info(f"[SCHEDULER] Starting weather update for user {user_id}")
+def send_daily_weather_update(user_id=None):
+    """Send weather update to users."""
+    logging.info("[SCHEDULER] Starting daily weather update")
     
-    def send_with_app_context():
-        try:
-            db = get_db()
-            user = db.execute('SELECT * FROM users WHERE id = ?', [user_id]).fetchone()
-            
-            if user is None:
-                logging.error(f"[SCHEDULER] User {user_id} not found")
-                return
-                
-            user_dict = dict(user)
-            logging.info(f"[SCHEDULER] Found user: {user_dict['phone_number']}")
-            
-            weather_data = get_weather(zipcode=user_dict['zipcode'])
-            logging.info(f"[SCHEDULER] Got weather data for zipcode: {user_dict['zipcode']}")
-            
-            message = generate_weather_message(user_dict, weather_data)
-            logging.info(f"[SCHEDULER] Generated message: {message}")
-            
-            result = send_text_message(user_dict['phone_number'], message)
-            logging.info(f"[SCHEDULER] Message send result: {result}")
-            
-            return result
-            
-        except Exception as e:
-            logging.error(f"[SCHEDULER] Error in send_with_app_context: {str(e)}")
-            logging.exception("[SCHEDULER] Full stack trace:")
-            return False
-
     try:
-        # Create new application context
         with app.app_context():
-            return send_with_app_context()
+            db = get_db()
+            
+            # If user_id is provided, send only to that user
+            if user_id:
+                users = [db.execute('SELECT * FROM users WHERE id = ?', [user_id]).fetchone()]
+            else:
+                # Otherwise send to all users
+                users = db.execute('SELECT * FROM users').fetchall()
+            
+            if not users:
+                logging.info("[SCHEDULER] No users found to process")
+                return
+            
+            for user in users:
+                if user is None:
+                    continue
+                    
+                try:
+                    user_dict = dict(user)
+                    weather_data = get_weather(zipcode=user_dict['zipcode'])
+                    message = generate_weather_message(user_dict, weather_data)
+                    
+                    result = send_text_message(user_dict['phone_number'], message)
+                    logging.info(f"[SCHEDULER] Message sent to {user_dict['phone_number']}: {result}")
+                    
+                except Exception as e:
+                    logging.error(f"[SCHEDULER] Error processing user: {str(e)}")
+                    continue
+                    
     except Exception as e:
         logging.error(f"[SCHEDULER] Critical error: {str(e)}")
-        logging.exception("[SCHEDULER] Full stack trace:")
-        return False
 
 def get_user_preferred_time():
     with app.app_context():
@@ -713,32 +710,21 @@ def init_scheduler():
     scheduler.start()
     logging.info("[SCHEDULER] New scheduler started")
 
-    # Schedule jobs for all users
+    # Schedule the daily job
     try:
-        with app.app_context():
-            db = get_db()
-            users = db.execute('SELECT * FROM users').fetchall()
-            
-            for user in users:
-                user_dict = dict(user)
-                time_str = user_dict['preferred_time']
-                
-                if ':' in time_str:
-                    hour, minute = map(int, time_str.split(':'))
-                    job = scheduler.add_job(
-                        func=send_daily_weather_update,
-                        args=[user_dict['id']],
-                        trigger='cron',
-                        hour=hour,
-                        minute=minute,
-                        id=f'daily_job_{user_dict["id"]}',
-                        name=f'Daily update for user {user_dict["id"]}',
-                        replace_existing=True
-                    )
-                    logging.info(f"[SCHEDULER] Scheduled job for user {user_dict['id']} at {hour:02d}:{minute:02d}")
+        job = scheduler.add_job(
+            func=send_daily_weather_update,
+            trigger='cron',
+            hour=7,  # Default to 7:30 AM
+            minute=30,
+            id='daily_weather_job',
+            name='Daily Weather Update',
+            replace_existing=True
+        )
+        logging.info(f"[SCHEDULER] Job scheduled. Next run at: {job.next_run_time}")
     except Exception as e:
-        logging.error(f"[SCHEDULER] Error scheduling jobs: {e}")
-        
+        logging.error(f"[SCHEDULER] Error scheduling job: {e}")
+
     return scheduler
 
 # Initialize scheduler when app starts
