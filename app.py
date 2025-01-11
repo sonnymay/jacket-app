@@ -632,8 +632,8 @@ def send_daily_weather_update(user_id):
     """Send weather update to a specific user."""
     logging.info(f"[SCHEDULER] Starting weather update for user {user_id}")
     
-    try:
-        with app.app_context():
+    def send_with_app_context():
+        try:
             db = get_db()
             user = db.execute('SELECT * FROM users WHERE id = ?', [user_id]).fetchone()
             
@@ -642,22 +642,32 @@ def send_daily_weather_update(user_id):
                 return
                 
             user_dict = dict(user)
-            logging.info(f"[SCHEDULER] Processing user: {user_dict['phone_number']}")
+            logging.info(f"[SCHEDULER] Found user: {user_dict['phone_number']}")
             
-            try:
-                weather_data = get_weather(zipcode=user_dict['zipcode'])
-                message = generate_weather_message(user_dict, weather_data)
-                
-                result = send_text_message(user_dict['phone_number'], message)
-                logging.info(f"[SCHEDULER] Message sent to {user_dict['phone_number']}: {result}")
-                
-            except Exception as e:
-                logging.error(f"[SCHEDULER] Error sending message: {e}")
-                logging.exception("[SCHEDULER] Full stack trace:")
-                
+            weather_data = get_weather(zipcode=user_dict['zipcode'])
+            logging.info(f"[SCHEDULER] Got weather data for zipcode: {user_dict['zipcode']}")
+            
+            message = generate_weather_message(user_dict, weather_data)
+            logging.info(f"[SCHEDULER] Generated message: {message}")
+            
+            result = send_text_message(user_dict['phone_number'], message)
+            logging.info(f"[SCHEDULER] Message send result: {result}")
+            
+            return result
+            
+        except Exception as e:
+            logging.error(f"[SCHEDULER] Error in send_with_app_context: {str(e)}")
+            logging.exception("[SCHEDULER] Full stack trace:")
+            return False
+
+    try:
+        # Create new application context
+        with app.app_context():
+            return send_with_app_context()
     except Exception as e:
-        logging.error(f"[SCHEDULER] Database error: {e}")
+        logging.error(f"[SCHEDULER] Critical error: {str(e)}")
         logging.exception("[SCHEDULER] Full stack trace:")
+        return False
 
 def get_user_preferred_time():
     with app.app_context():
@@ -981,29 +991,80 @@ def test_scheduler_now():
 
 @app.route('/schedule-test')
 def schedule_test():
-    """Schedule a test job for 2 minutes from now."""
+    """Schedule a test job for 1 minute from now."""
     try:
         if 'user_id' not in session:
             return jsonify({"error": "Not logged in"}), 401
             
-        test_time = datetime.now(pytz.timezone('America/Chicago')) + timedelta(minutes=2)
+        user_id = session['user_id']
+        test_time = datetime.now(pytz.timezone('America/Chicago')) + timedelta(minutes=1)
         
+        # First test immediate send
+        logging.info(f"[TEST] Testing immediate send for user {user_id}")
+        immediate_result = send_daily_weather_update(user_id)
+        logging.info(f"[TEST] Immediate send result: {immediate_result}")
+        
+        # Then schedule future job
         job = scheduler.add_job(
             func=send_daily_weather_update,
-            args=[session['user_id']],
+            args=[user_id],
             trigger='date',
             run_date=test_time,
-            id=f'test_job_{session["user_id"]}',
+            id=f'test_job_{user_id}',
             replace_existing=True
         )
         
         return jsonify({
             "status": "scheduled",
+            "immediate_send": immediate_result,
             "run_time": str(test_time),
             "next_run": str(job.next_run_time)
         })
     except Exception as e:
-        logging.error(f"[TEST] Scheduler test error: {e}")
+        logging.error(f"[TEST] Scheduler test error: {str(e)}")
+        logging.exception("[TEST] Full stack trace:")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/verify-twilio')
+def verify_twilio():
+    """Verify Twilio credentials and test message sending."""
+    try:
+        if 'user_id' not in session:
+            return jsonify({"error": "Not logged in"}), 401
+            
+        # Get Twilio credentials
+        account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+        auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+        twilio_number = os.getenv("TWILIO_PHONE_NUMBER")
+        
+        # Get user phone number
+        db = get_db()
+        user = db.execute('SELECT phone_number FROM users WHERE id = ?', 
+                         [session['user_id']]).fetchone()
+        
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+            
+        status = {
+            "twilio_credentials": {
+                "account_sid_present": bool(account_sid),
+                "auth_token_present": bool(auth_token),
+                "twilio_number_present": bool(twilio_number)
+            },
+            "user_phone": user['phone_number']
+        }
+        
+        # Test message send
+        try:
+            result = send_text_message(user['phone_number'], 
+                                     "This is a test message from your weather app.")
+            status["test_message_sent"] = result
+        except Exception as e:
+            status["test_message_error"] = str(e)
+            
+        return jsonify(status)
+        
+    except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
