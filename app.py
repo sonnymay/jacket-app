@@ -490,6 +490,8 @@ def send_text_message(to_number, message_body):
     auth_token = os.getenv("TWILIO_AUTH_TOKEN")
     twilio_number = os.getenv("TWILIO_PHONE_NUMBER")
     
+    logging.info(f"[SMS] Twilio credentials present: SID={bool(account_sid)}, Token={bool(auth_token)}, Number={bool(twilio_number)}")
+    
     if not all([account_sid, auth_token, twilio_number]):
         missing = []
         if not account_sid: missing.append("TWILIO_ACCOUNT_SID")
@@ -1065,6 +1067,60 @@ def verify_twilio():
         return jsonify(status)
         
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/test-send-now')
+def test_send_now():
+    """Force send a test message immediately."""
+    try:
+        # Get all users from database
+        with app.app_context():
+            db = get_db()
+            users = db.execute('SELECT * FROM users').fetchall()
+            
+            if not users:
+                return jsonify({"error": "No users found in database"})
+            
+            results = []
+            for user in users:
+                try:
+                    user_dict = dict(user)
+                    logging.info(f"[TEST] Processing user: {user_dict['phone_number']}")
+                    
+                    weather_data = get_weather(zipcode=user_dict['zipcode'])
+                    message = generate_weather_message(user_dict, weather_data)
+                    
+                    # Try to send message
+                    success = send_text_message(user_dict['phone_number'], message)
+                    
+                    results.append({
+                        "user_id": user_dict['id'],
+                        "phone": user_dict['phone_number'],
+                        "success": success,
+                        "message": message
+                    })
+                    
+                    logging.info(f"[TEST] Message sent: {success}")
+                    
+                except Exception as e:
+                    logging.error(f"[TEST] Error for user {user_dict.get('id')}: {str(e)}")
+                    results.append({
+                        "user_id": user_dict.get('id'),
+                        "error": str(e)
+                    })
+            
+            return jsonify({
+                "status": "complete",
+                "results": results,
+                "twilio_credentials": {
+                    "account_sid": bool(os.getenv("TWILIO_ACCOUNT_SID")),
+                    "auth_token": bool(os.getenv("TWILIO_AUTH_TOKEN")),
+                    "phone_number": bool(os.getenv("TWILIO_PHONE_NUMBER"))
+                }
+            })
+            
+    except Exception as e:
+        logging.error(f"[TEST] Critical error: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
