@@ -183,7 +183,7 @@ def create_user(phone, password, zipcode, preferred_time, temperature_sensitivit
             logging.error(f"[REGISTRATION] Phone number already registered: {formatted_phone}")
             raise ValueError("Phone number is already registered")
         
-        hashed_password = generate_password_hash(password)
+        hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
         db.execute('''
             INSERT INTO users (phone_number, password, zipcode, preferred_time, temperature_sensitivity) 
             VALUES (?, ?, ?, ?, ?)
@@ -1180,4 +1180,4 @@ if __name__ == '__main__':
         except Exception as e:
             logging.error(f"[SCHEDULER] Initial job scheduling failed: {e}")
 
-    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
+    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get("PORT", 5001)))

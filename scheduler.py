@@ -3,6 +3,20 @@ from app import send_daily_weather_update
 from pytz import timezone, utc
 import logging
 from datetime import datetime, timedelta
+from dateutil import parser
+from sqlalchemy import create_engine, Column, Integer, String, DateTime
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+import pytz
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import scoped_session
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import create_engine, Column, Integer, String, DateTime
+from sqlalchemy.orm import sessionmaker
+import pytz
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import scoped_session
+import logging
 import os
 
 # Configure detailed logging
